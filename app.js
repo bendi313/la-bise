@@ -907,7 +907,7 @@ function vueReglages(racine) {
     '<div class="carte"><h2>À propos</h2><p>La Bise fonctionne sans connexion une fois installée. Vos réglages, vos formules, vos mesures et votre carnet restent sur cet appareil ; rien n\'est envoyé.</p>' +
     `<p class="discret">Données du ${dateFr(D.genere_le)}.</p><div class="ligne"><button class="bouton" id="p-mentions">Mentions légales et prévention</button></div></div>`;
   racine.querySelectorAll('[data-theme-choix]').forEach((b) => {
-    b.onclick = () => { reglages.theme = b.dataset.themeChoix; memoriser(); habiller(); afficher(); };
+    b.onclick = () => { reglages.theme = b.dataset.themeChoix; reglages.themeChoisi = true; memoriser(); habiller(); afficher(); };
   });
   // en direct : la page entière suit par les variables CSS ; seul l'aperçu (boules calculées) est redessiné
   const enDirect = () => { memoriser(); habiller(); $('apercu').innerHTML = htmlApercu(); };
@@ -950,7 +950,7 @@ async function demarrer() {
   const parametres = new URLSearchParams(location.search), apercu = parametres.get('apercu');
   if (apercu !== null) {
     stockage = { getItem: () => null, setItem: () => {} };
-    reglages = { ...reglages, theme: THEMES[apercu] ? apercu : reglages.theme, mentionsAcceptees: true };
+    reglages = { ...reglages, theme: THEMES[apercu] ? apercu : reglages.theme, themeChoisi: true, mentionsAcceptees: true };
   }
   habiller();
   try {

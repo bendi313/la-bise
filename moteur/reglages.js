@@ -32,7 +32,8 @@ export const DEFAUTS = {
   mode: 'classique',     // ou 'labo' : le Moteur Labo génère selon les lois du labo, sans les styles ni les fétiches
   lois: { gauss: false, corde: false, entropie: false },   // « Tirage Labo » : lois du labo appliquées à la génération
   loisPerso: [],         // identifiants des mesures de Mon Labo utilisées comme lois
-  theme: 'matrix',
+  theme: 'moderne',      // le thème classique sombre, tant que l'utilisateur n'en a pas choisi un autre
+  themeChoisi: false,    // vrai dès que l'utilisateur a choisi lui-même un thème
   // null = valeur du thème. Couleurs : fond, cartes, textes, accents, boules ; plus la force de la lueur.
   perso: { fond: null, surface: null, texte: null, texte2: null, accent: null, accent2: null, accent3: null, froid: null, chaud: null, lueur: null },
   seuils: { froid: 0, chaud: 100 },   // dégradé des boules : tout froid en dessous de `froid` %, tout chaud au-dessus de `chaud` %
@@ -106,7 +107,9 @@ export function valider(r = {}) {
     mode: r.mode === 'labo' ? 'labo' : 'classique',
     lois: Object.fromEntries(Object.keys(DEFAUTS.lois).map((cle) => [cle, r.lois?.[cle] === true])),
     loisPerso: (Array.isArray(r.loisPerso) ? r.loisPerso : []).filter((x) => typeof x === 'string').slice(0, 5),
-    theme: typeof r.theme === 'string' ? r.theme : DEFAUTS.theme,
+    // sans choix explicite de l'utilisateur, c'est le thème par défaut qui s'applique (même après un changement de défaut)
+    theme: r.themeChoisi === true && typeof r.theme === 'string' ? r.theme : DEFAUTS.theme,
+    themeChoisi: r.themeChoisi === true,
     perso, seuils,
     mentionsAcceptees: r.mentionsAcceptees === true,
   };

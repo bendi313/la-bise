@@ -42,7 +42,7 @@ export const THEMES = {
   },
 };
 
-export const THEME_PAR_DEFAUT = 'matrix';
+export const THEME_PAR_DEFAUT = 'moderne';
 
 // Les couleurs que l'utilisateur peut régler lui-même dans le studio.
 export const COULEURS_PERSO = [

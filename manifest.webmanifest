@@ -6,8 +6,8 @@
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#0d0d0d",
-  "theme_color": "#0d0d0d",
+  "background_color": "#1f2125",
+  "theme_color": "#1f2125",
   "shortcuts": [
     { "name": "Grilles rapides", "short_name": "Rapide", "description": "Générer tout de suite avec mes réglages", "url": "./?rapide#grilles" },
     { "name": "Mon carnet", "short_name": "Carnet", "url": "./#carnet" }

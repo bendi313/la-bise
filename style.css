@@ -1,8 +1,9 @@
 /* Toutes les couleurs viennent des variables posées par themes.js : changer de thème ne touche pas à ce fichier. */
 :root {
-  --fond: #0d0d0d; --surface: #141a15; --texte: #d6ffe6; --texte2: #7fbf98; --bord: #1f4d33;
-  --accent: #00ff66; --accent2: #00e5ff; --accent3: #ff2bd6; --sur-accent: #04140a;
-  --froid: #3aa0ff; --chaud: #ff5a1f; --lueur: 1; --police: Consolas, monospace; --rayon: 6px;
+  /* valeurs du thème par défaut (Modern Dark), affichées le temps que themes.js pose les siennes */
+  --fond: #1f2125; --surface: #2a2d33; --texte: #e6e7ea; --texte2: #a3a8b0; --bord: #3d424b;
+  --accent: #7aa2f7; --accent2: #73c2b0; --accent3: #c9a0dc; --sur-accent: #14161a;
+  --froid: #5b9bd5; --chaud: #e07a5f; --lueur: 0; --police: system-ui, -apple-system, "Segoe UI", sans-serif; --rayon: 10px;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
