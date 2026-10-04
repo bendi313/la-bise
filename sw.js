@@ -1,5 +1,5 @@
-﻿// Fonctionnement hors connexion. Avec du rÃ©seau, on prend toujours la derniÃ¨re version et on la garde ;
-// sans rÃ©seau, on ressort la copie gardÃ©e sur l'appareil.
+// Fonctionnement hors connexion. Avec du réseau, on prend toujours la dernière version et on la garde ;
+// sans réseau, on ressort la copie gardée sur l'appareil.
 const CACHE = 'labise-v7';
 const COQUILLE = ['./', 'index.html', 'style.css', 'app.js', 'themes.js', 'labo.js', 'textes.js',
   'moteur/criteres.js', 'moteur/reglages.js', 'moteur/generateur.js', 'moteur/export.js',
