@@ -258,7 +258,7 @@ function ligneCarnet(entree) {
       : `${NOMS_RANGS(e)} — rien gagné`;
   }
   return `<div class="carte"><p class="discret">Tirage du ${dateFr(entree.date)}</p>${boulesGrille(entree, bons)}<div class="mesure"><span>${statut}</span></div>` +
-    `<div class="ligne"><button class="bouton" data-rejouer="${entree.id}">Rejouer sur l'historique</button><button class="bouton" data-oter="${entree.id}">Supprimer</button></div></div>`;
+    `<div class="ligne"><button class="bouton" data-rejouer="${entree.id}">Tester dans le temps</button><button class="bouton" data-oter="${entree.id}">Supprimer</button></div></div>`;
 }
 
 function courbe(points) {
@@ -269,10 +269,36 @@ function courbe(points) {
     `<div class="echelle-textes"><span>${dateFr(points[0].date)}</span><span>solde final : ${nombre(soldes[soldes.length - 1])} €</span></div>`;
 }
 
+// La chronologie d'une grille : une frise des années, puis chaque tirage où elle a touché, avec les boules du vrai tirage.
+// Dans chaque tirage affiché, les numéros et étoiles de la grille testée sont entourés ; les autres sont estompés.
+function htmlChronologie(r) {
+  const res = r.resultat, max = Math.max(1, ...res.parAnnee.map((a) => a.touches));
+  const frise = res.parAnnee.map((a) => `<button class="annee${r.annee === a.annee ? ' choisie' : ''}" data-annee="${a.annee}" ` +
+    `title="${a.annee} : ${a.touches} tirage(s) gagnant(s) sur ${a.tirages}">` +
+    `<i style="height:${Math.max(4, (100 * a.touches) / max)}%;background:${a.meilleurRang ? couleurThermique(1 - (a.meilleurRang - 1) / 12, pal) : 'var(--bord)'}"></i>` +
+    `<b>${a.touches}</b><small>${a.annee.slice(2)}</small></button>`).join('');
+  const rangMax = r.rangMax ?? 13;
+  const touches = res.touches.filter((t) => (!r.annee || t.date.startsWith(r.annee)) && t.rang <= rangMax).reverse();
+  const annee = r.annee ? res.parAnnee.find((a) => a.annee === r.annee) : null;
+  const ligne = (t) => `<div class="touche"><div class="entete"><b>${dateFr(t.date)}</b><span class="reponse${t.rang <= 9 ? ' oui' : ''}">Rang ${t.rang}</span></div>` +
+    `${boulesGrille(t, r.grille)}<p class="discret">${pluriel(t.bonsNumeros, 'bon numéro').replace('bon numéros', 'bons numéros')} et ${pluriel(t.bonnesEtoiles, 'bonne étoile').replace('bonne étoiles', 'bonnes étoiles')} — ` +
+    `<b>${t.inconnu ? 'montant inconnu (personne n\'avait gagné ce rang ce soir-là)' : nombre(t.gain, 2) + ' €'}</b></p></div>`;
+  return '<h3>Chronologie : les tirages où la grille a touché</h3>' +
+    '<p class="discret">Une colonne par année : la hauteur donne le nombre de tirages gagnants, la couleur le meilleur rang de l\'année (plus chaud = meilleur rang). Touchez une année pour n\'afficher qu\'elle.</p>' +
+    `<div class="frise">${frise}</div>` +
+    `<div class="ligne"><label>Afficher <select id="chrono-rang">${[[13, 'tous les rangs'], [11, 'rang 11 ou mieux'], [9, 'rang 9 ou mieux'], [6, 'rang 6 ou mieux']]
+      .map(([v, nom]) => `<option value="${v}"${v === rangMax ? ' selected' : ''}>${nom}</option>`).join('')}</select></label>` +
+    (r.annee ? '<button class="bouton" id="chrono-tout">Toutes les années</button>' : '') + '</div>' +
+    `<p class="legende-filtre">${annee ? `${annee.annee} : ${pluriel(annee.touches, 'tirage gagnant').replace('tirage gagnants', 'tirages gagnants')} sur ${annee.tirages}, ${nombre(annee.cout)} € misés, ${nombre(annee.gains, 2)} € récupérés`
+      : `${pluriel(touches.length, 'tirage affiché').replace('tirage affichés', 'tirages affichés')}, du plus récent au plus ancien`}</p>` +
+    (touches.length ? `<div class="haut touches">${touches.map(ligne).join('')}</div>` : '<p class="discret">Aucun tirage gagnant avec ce filtre.</p>') +
+    '<p class="discret">Dans chaque tirage : les boules entourées sont celles de votre grille, les autres sont estompées. Les couleurs des boules suivent la forme récente du numéro, comme ailleurs.</p>';
+}
+
 function carteRejeu(r) {
   const res = r.resultat;
   const rangs = res.parRang.map((n, i) => (n ? `<tr><td>Rang ${i + 1}</td><td>${nombre(n)} fois</td></tr>` : '')).join('');
-  return `<div class="carte" id="rejeu"><h2>Rejeu sur l'historique</h2>${boulesGrille(r.grille)}` +
+  return `<div class="carte" id="rejeu"><div class="entete"><h2>Ma grille dans le temps</h2><button class="bouton" id="rejeu-fermer">Fermer</button></div>${boulesGrille(r.grille)}` +
     `<p class="discret">${nombre(res.tirages)} tirages, du ${dateFr(res.debut)} au ${dateFr(res.fin)}, une grille à chaque tirage.</p>` +
     `<div class="mesure"><span>Misé</span><b>${nombre(res.cout)} €</b></div><div class="mesure"><span>Récupéré</span><b>${nombre(res.gains, 2)} €</b></div>` +
     `<div class="mesure"><span>Rendu pour 100 € misés</span><b>${nombre(res.rendu, 1)} €</b></div>` +
@@ -280,6 +306,7 @@ function carteRejeu(r) {
     `<div class="mesure"><span>Meilleur rang atteint</span><b>${res.meilleurRang ?? 'aucun'}</b></div>` +
     `<div class="mesure"><span>Plus longue série sans gain</span><b>${nombre(res.serieMax)} tirages</b></div>` +
     `<h3>Solde au fil des tirages</h3>${courbe(res.courbe)}` +
+    `<div id="chrono">${htmlChronologie(r)}</div>` +
     (rangs ? `<details><summary>Détail des rangs</summary><table>${rangs}</table>` +
       (res.meilleurs.length ? '<p class="discret">Meilleurs tirages : ' + res.meilleurs.map((m) => `${dateFr(m.date)} (rang ${m.rang}, ${m.gain ? nombre(m.gain, 2) + ' €' : 'montant inconnu'})`).join(' ; ') + '.</p>' : '') + '</details>' : '') +
     (res.inconnus ? `<p class="discret">${pluriel(res.inconnus, 'rang')} atteint${res.inconnus > 1 ? 's' : ''} un soir où personne ne l'avait gagné : le montant réel est inconnu et compté pour 0.</p>` : '') +
@@ -292,7 +319,8 @@ function vueCarnet(racine) {
   racine.innerHTML = '<div class="carte"><h2>Mon carnet</h2><p class="discret">Les grilles que vous avez réellement jouées. Elles restent sur cet appareil et sont vérifiées dès que le tirage est dans les données.</p>' +
     `<div class="ligne"><label>5 numéros <input id="c-numeros" inputmode="numeric" placeholder="ex. 3 17 28 41 49"></label></div>` +
     `<div class="ligne"><label>2 étoiles <input id="c-etoiles" inputmode="numeric" placeholder="ex. 2 11"></label><label>Tirage du <input type="date" id="c-date" value="${carnetOutils.prochainTirage(aujourdhui())}"></label></div>` +
-    '<div class="ligne"><button class="bouton" id="c-ajouter">Ajouter au carnet</button><button class="bouton" id="c-tester">Tester sur l\'historique</button></div>' +
+    '<div class="ligne"><button class="bouton" id="c-ajouter">Ajouter au carnet</button><button class="bouton" id="c-tester">Tester ma grille dans le temps</button></div>' +
+    '<p class="discret">« Tester ma grille dans le temps » rejoue cette combinaison sur tous les tirages depuis 2004 : bilan, chronologie année par année, et chaque tirage où elle a touché.</p>' +
     `<p class="discret" id="c-message">${etat.message}</p></div>` +
     (carnet.length ? '<div class="carte"><h2>Bilan du carnet</h2>' +
       `<div class="mesure"><span>Grilles notées</span><b>${nombre(b.grilles)} (${nombre(b.attente)} en attente)</b></div>` +
@@ -318,6 +346,14 @@ function vueCarnet(racine) {
     montrerRejeu({ numeros: entree.numeros, etoiles: entree.etoiles });
   };
   racine.querySelectorAll('[data-rejouer]').forEach((bouton) => { bouton.onclick = () => montrerRejeu(carnet.find((e) => e.id === bouton.dataset.rejouer)); });
+  // la chronologie se redessine seule quand on choisit une année ou un rang, sans faire sauter l'écran
+  const brancherChronologie = () => {
+    const redessiner = () => { $('chrono').innerHTML = htmlChronologie(etat.rejeu); brancherChronologie(); };
+    racine.querySelectorAll('[data-annee]').forEach((b) => { b.onclick = () => { etat.rejeu.annee = etat.rejeu.annee === b.dataset.annee ? null : b.dataset.annee; redessiner(); }; });
+    if ($('chrono-rang')) $('chrono-rang').onchange = () => { etat.rejeu.rangMax = Number($('chrono-rang').value); redessiner(); };
+    if ($('chrono-tout')) $('chrono-tout').onclick = () => { etat.rejeu.annee = null; redessiner(); };
+  };
+  if (etat.rejeu) { brancherChronologie(); $('rejeu-fermer').onclick = () => { etat.rejeu = null; afficher(); }; }
   racine.querySelectorAll('[data-oter]').forEach((bouton) => {
     bouton.onclick = () => { carnet = carnetOutils.supprimer(carnet, bouton.dataset.oter); carnetOutils.sauver(stockage, carnet); afficher(); };
   });

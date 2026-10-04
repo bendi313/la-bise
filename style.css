@@ -90,6 +90,18 @@ body.rapide { padding-bottom: 16px; }
 }
 .ticket pre { margin: 0; font: 13px/1.55 "Courier New", Consolas, monospace; white-space: pre; overflow-x: auto; }
 [data-theme="arcade"] .ticket, [data-theme="matrix"] .ticket { background: #050805; color: var(--accent); border: 1px solid var(--accent); text-shadow: 0 0 calc(6px * var(--lueur)) var(--accent); }
+/* Chronologie d'une grille : la frise des années et la liste des tirages gagnants. */
+.frise { display: flex; align-items: flex-end; gap: 2px; height: 96px; margin: 8px 0 4px; }
+.frise .annee { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 1px;
+  background: none; border: 1px solid transparent; border-radius: 4px; padding: 0 0 1px; cursor: pointer; color: var(--texte2); }
+.frise .annee i { width: 100%; border-radius: 3px 3px 0 0; order: 2; }
+.frise .annee b { font-size: 11px; order: 1; color: var(--texte); }
+.frise .annee small { font-size: 10px; order: 3; }
+.frise .annee.choisie { border-color: var(--texte); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.touche { border-top: 1px solid var(--bord); padding: 8px 0 2px; }
+.touche .entete { margin-bottom: 6px; }
+.touche .boule { width: 34px; height: 34px; font-size: 13px; }
+.touches { max-height: 520px; padding-right: 4px; }
 .courbe { display: block; width: 100%; height: auto; margin-top: 6px; }
 .courbe polyline { fill: none; stroke: var(--accent); stroke-width: 2; filter: drop-shadow(0 0 calc(4px * var(--lueur)) var(--accent)); }
 .courbe .zero { stroke: var(--texte2); stroke-dasharray: 4 4; }
