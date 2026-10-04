@@ -30,9 +30,14 @@ export const DEFAUTS = {
   dosage: 'modere',
   affichage: 'moderne',  // ou 'ticket'
   theme: 'matrix',
-  perso: { froid: null, chaud: null, lueur: null },   // null = valeur du thème
+  // null = valeur du thème. Couleurs : fond, cartes, textes, accents, boules ; plus la force de la lueur.
+  perso: { fond: null, surface: null, texte: null, texte2: null, accent: null, accent2: null, accent3: null, froid: null, chaud: null, lueur: null },
+  seuils: { froid: 0, chaud: 100 },   // dégradé des boules : tout froid en dessous de `froid` %, tout chaud au-dessus de `chaud` %
   mentionsAcceptees: false,
 };
+
+const COULEURS = Object.keys(DEFAUTS.perso).filter((c) => c !== 'lueur');
+const ECART_SEUILS = 10;              // les deux seuils restent séparés d'au moins 10 points
 
 const CLE_STOCKAGE = 'labise-reglages';
 
@@ -56,6 +61,10 @@ export function valider(r = {}) {
   let sommeMin = borner(r.sommeMin, 15, 240, DEFAUTS.sommeMin), sommeMax = borner(r.sommeMax, 15, 240, DEFAUTS.sommeMax);
   if (sommeMin > sommeMax) [sommeMin, sommeMax] = [sommeMax, sommeMin];
   const lueur = Number(r.perso?.lueur);
+  const perso = Object.fromEntries(COULEURS.map((c) => [c, estCouleur(r.perso?.[c]) ? r.perso[c] : null]));
+  perso.lueur = r.perso?.lueur === null || r.perso?.lueur === undefined || !Number.isFinite(lueur) ? null : Math.min(2, Math.max(0, lueur));
+  const froid = borner(r.seuils?.froid, 0, 100 - ECART_SEUILS, DEFAUTS.seuils.froid);
+  const seuils = { froid, chaud: Math.max(froid + ECART_SEUILS, borner(r.seuils?.chaud, 0, 100, DEFAUTS.seuils.chaud)) };
   return {
     poids,
     fenetreChaud: borner(r.fenetreChaud, 5, 200, DEFAUTS.fenetreChaud),
@@ -65,11 +74,7 @@ export function valider(r = {}) {
     dosage: DOSAGES[r.dosage] ? r.dosage : DEFAUTS.dosage,
     affichage: AFFICHAGES.includes(r.affichage) ? r.affichage : DEFAUTS.affichage,
     theme: typeof r.theme === 'string' ? r.theme : DEFAUTS.theme,
-    perso: {
-      froid: estCouleur(r.perso?.froid) ? r.perso.froid : null,
-      chaud: estCouleur(r.perso?.chaud) ? r.perso.chaud : null,
-      lueur: r.perso?.lueur === null || r.perso?.lueur === undefined || !Number.isFinite(lueur) ? null : Math.min(2, Math.max(0, lueur)),
-    },
+    perso, seuils,
     mentionsAcceptees: r.mentionsAcceptees === true,
   };
 }

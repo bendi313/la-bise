@@ -104,7 +104,10 @@ table.triable th { cursor: pointer; position: sticky; top: 0; background: var(--
 table.triable th[data-sens="haut"]::after { content: " ▲"; }
 table.triable th[data-sens="bas"]::after { content: " ▼"; }
 table.triable td { white-space: nowrap; }
-table.triable tr.hors td { color: var(--chaud); font-weight: 700; }
+/* Une ligne qui franchit un seuil est surlignée en entier : teinte chaude au-dessus, froide en dessous. */
+table.triable tr.hors td { font-weight: 700; }
+table.triable tr.dessus td { background: color-mix(in srgb, var(--chaud) 20%, transparent); }
+table.triable tr.dessous td { background: color-mix(in srgb, var(--froid) 20%, transparent); }
 details.detail > summary { color: var(--accent); font-weight: 700; }
 .constat { margin: 8px 0 0; font-size: 14px; color: var(--accent2); }
 .statut-inhabituel { border-left-color: var(--chaud); }
@@ -121,12 +124,43 @@ th { color: var(--texte2); font-weight: 400; }
 .enquete .entete { margin: 0; }
 .enquete ul { margin: 4px 0; font-size: 14px; }
 .enquete li { margin: 3px 0; }
-/* Le bandeau de résumé : la phrase complète d'une enquête pour le numéro, dans une autre couleur que le reste. */
+/* Les deux familles d'enquêtes ont chacune leur couleur : les dates insolites et les anomalies du boulier. */
+.famille-dates { --famille: var(--accent3); }
+.famille-boulier { --famille: var(--accent2); }
+.etiquette-famille {
+  display: inline-block; padding: 3px 10px; border-radius: var(--rayon); font-weight: 700; font-size: 13px; letter-spacing: 0.5px;
+  color: var(--famille, var(--accent2)); border: 1px solid var(--famille, var(--accent2)); background: color-mix(in srgb, var(--famille, var(--accent2)) 14%, transparent);
+}
+.carte.famille { border-top: 4px solid var(--famille); }
+details.famille { border-left: 4px solid var(--famille); padding-left: 10px; margin-top: 14px; }
+details.famille > summary { color: var(--texte); font-weight: 700; }
+.famille-dates .carte h2, .famille-boulier .carte h2 { color: var(--famille); }
+.famille-dates > .carte, .famille-boulier > .carte { border-left: 4px solid var(--famille); }
+.definition-fiche { margin: 0 0 4px; font-size: 14px; font-style: italic; color: var(--texte); }
+/* Le bandeau de résumé : la phrase complète d'une enquête, dans la couleur de sa famille. */
 .resume {
   margin: 8px 0 6px; padding: 10px 12px; border-radius: var(--rayon); font-size: 14px; line-height: 1.5; color: var(--texte);
-  background: color-mix(in srgb, var(--accent2) 16%, var(--fond)); border: 1px solid color-mix(in srgb, var(--accent2) 60%, transparent);
-  border-left: 4px solid var(--accent2); box-shadow: 0 0 calc(8px * var(--lueur)) color-mix(in srgb, var(--accent2) 30%, transparent);
+  background: color-mix(in srgb, var(--famille, var(--accent2)) 16%, var(--fond)); border: 1px solid color-mix(in srgb, var(--famille, var(--accent2)) 60%, transparent);
+  border-left: 4px solid var(--famille, var(--accent2)); box-shadow: 0 0 calc(8px * var(--lueur)) color-mix(in srgb, var(--famille, var(--accent2)) 30%, transparent);
 }
+/* La question écrite au-dessus du badge OUI / NON. */
+.question-badge { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
+.question-badge small { font-size: 11px; color: var(--texte2); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+/* Filtres et légendes : plus grands, en gras. */
+.filtres .puce { font-size: 16px; font-weight: 700; }
+.legende-filtre { font-size: 15px; font-weight: 700; color: var(--texte); }
+.barres-info { margin: 6px 0 0; min-height: 22px; font-size: 14px; font-weight: 700; color: var(--accent2); }
+.barres i { cursor: pointer; }
+.barres i.vise { outline: 2px solid var(--texte); outline-offset: 1px; }
+.aide-jauge { margin: 2px 0 0; }
+.aide-jauge > summary { font-size: 13px; padding: 2px 0; color: var(--texte2); }
+/* Studio de couleurs. */
+.studio { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 10px 0; }
+.studio label { display: flex; align-items: center; gap: 8px; padding: 4px; border: 1px solid transparent; border-radius: var(--rayon); color: var(--texte2); }
+.studio label.modifie { border-color: var(--accent); color: var(--texte); font-weight: 700; }
+.apercu { border: 1px dashed var(--bord); border-radius: var(--rayon); padding: 10px; margin: 12px 0; background: var(--fond); }
+.apercu .carte { margin: 6px 0 0; }
+.apercu .bouton.principal { margin-top: 10px; }
 .enquete.marquee .resume { background: color-mix(in srgb, var(--chaud) 16%, var(--fond)); border-color: color-mix(in srgb, var(--chaud) 60%, transparent); border-left-color: var(--chaud); box-shadow: 0 0 calc(8px * var(--lueur)) color-mix(in srgb, var(--chaud) 30%, transparent); }
 .reponse { font-weight: 700; padding: 2px 8px; border-radius: var(--rayon); border: 1px solid var(--texte2); color: var(--texte2); white-space: nowrap; font-size: 13px; }
 .reponse.oui { border-color: var(--chaud); color: var(--chaud); }
@@ -139,7 +173,8 @@ th { color: var(--texte2); font-weight: 400; }
 .theme { text-align: left; padding: 10px; border: 1px solid var(--bord); border-radius: var(--rayon); background: transparent; cursor: pointer; }
 .theme.actif { border-color: var(--accent); box-shadow: 0 0 calc(10px * var(--lueur)) var(--accent); }
 .theme .pastilles { display: flex; gap: 4px; margin-top: 6px; }
-.theme .pastilles i { width: 18px; height: 18px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .25); }
+.theme .pastilles i { width: 18px; height: 18px; border-radius: 50%; border: 1px solid rgba(128, 128, 128, .5); }
+.themes + h3 { margin-top: 16px; }
 a { color: var(--accent2); }
 ul { padding-left: 18px; margin: 6px 0; }
 li { margin: 6px 0; }

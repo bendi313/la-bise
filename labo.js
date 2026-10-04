@@ -102,11 +102,22 @@ export function phraseEnquete(n, cle, l, c) {
   }
   // enquêtes sur une fenêtre de dates : sorties du numéro sur les tirages de la fenêtre
   if (c.tirages) {
-    return `Le numéro ${n} est sorti ${fois(l[1])} lors des ${minuscule(c.fenetre)}, sur ${fr(c.tirages)} tirage${c.tirages > 1 ? 's à ces dates' : ' à cette date'} depuis 2004 ` +
-      `(soit ${fr(l[2], 1)} % ; un numéro quelconque y est attendu ${fr(c.tirages / 10, 1)} fois, et le hasard donne de ${fr(c.bas)} à ${fr(c.haut)} sorties)` +
+    return `Le numéro ${n} est sorti ${fois(l[1])} lors des ${minuscule(c.fenetre)}, sur ${fr(c.tirages)} tirage${c.tirages > 1 ? 's à ces dates' : ' à cette date'} depuis 2004, ` +
+      `soit ${fr(l[2], 1)} % contre 10 % attendus par le hasard pur ` +
+      `(un numéro quelconque y est attendu ${fr(c.tirages / 10, 1)} fois, et le hasard donne de ${fr(c.bas)} à ${fr(c.haut)} sorties)` +
       `${c.suivi ? ` ; il fait partie des numéros que cette enquête surveille` : ''}.`;
   }
   return '';
+}
+
+// L'encadré sous la jauge d'une fiche : l'écart entre ce qui est observé et ce que le hasard donne en moyenne.
+export function resumeFiche(f) {
+  if (f.p === null || f.p === undefined) return '';
+  const d = f.dec, ecart = f.obs - f.att, dans = f.obs >= f.bas && f.obs <= f.haut;
+  const zone = `Le hasard seul donne en moyenne ${fr(f.att, d)}, et entre ${fr(f.bas, d)} et ${fr(f.haut, d)} dans 19 cas sur 20`;
+  if (Math.abs(ecart) < 0.5 * 10 ** -d) return `Observé : ${fr(f.obs, d)}. ${zone}. L'observé tombe pile sur cette moyenne : rien d'étonnant.`;
+  return `Observé : ${fr(f.obs, d)}. ${zone}. L'observé est ${fr(Math.abs(ecart), d)} ${ecart > 0 ? 'au-dessus' : 'en dessous'} de cette moyenne, ` +
+    (dans ? 'à l\'intérieur de la zone normale : rien d\'étonnant.' : 'en dehors de la zone normale : c\'est inhabituel.');
 }
 
 // La conclusion ajoutée à la phrase : le numéro sort-il de la fourchette du hasard ?
@@ -124,7 +135,7 @@ export function enquetesDuNumero(n, donnees) {
   ['insolites', 'boulier'].forEach((bloc) => (donnees[bloc]?.fiches || []).forEach((f) => {
     const d = f.detail;
     if (!d) return;
-    const base = { bloc, numero: f.numero, cle: f.cle, titre: f.titre, fenetre: f.fenetre };
+    const base = { bloc, numero: f.numero, cle: f.cle, titre: f.titre, definition: f.definition, fenetre: f.fenetre };
     if (d.colonnes[0].t === 'Numéro') {
       const ligne = d.lignes.find((l) => l[0] === n);
       if (!ligne) return;

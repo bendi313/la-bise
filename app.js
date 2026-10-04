@@ -7,19 +7,24 @@ import { versCSV, versJSON, versTicket, telecharger } from './moteur/export.js';
 import { rejouer } from './moteur/rejeu.js';
 import * as carnetOutils from './moteur/carnet.js';
 import * as deckOutils from './moteur/decks.js';
-import { THEMES, appliquer, palette, couleurThermique } from './themes.js';
-import { ficheNumero, pourcent, jauge, enquetesDuNumero, bilanEnquetes } from './labo.js';
+import { THEMES, CATEGORIES, COULEURS_PERSO, appliquer, palette, couleurThermique } from './themes.js';
+import { ficheNumero, pourcent, jauge, enquetesDuNumero, bilanEnquetes, resumeFiche } from './labo.js';
 import { phraseProfil, phraseFetiches, definitionStyle, nombre, signe, dateFr, MENTIONS } from './textes.js';
 
 const $ = (id) => document.getElementById(id);
 const AFFICHEES_MAX = 50;
 const MENU = [['grilles', 'Grilles'], ['carnet', 'Carnet'], ['numeros', 'Numéros'], ['mesures', 'Mesures'], ['reglages', 'Réglages']];
 const MODES = {
-  chaud: { nom: 'Forme récente', froid: 'peu sorti récemment', chaud: 'souvent sorti récemment' },
-  retard: { nom: 'Retard', froid: 'sorti il y a peu', chaud: 'absent depuis longtemps' },
-  frequence: { nom: 'Depuis 2004', froid: 'moins sorti', chaud: 'plus sorti' },
-  foule: { nom: 'Joué par la foule', froid: 'peu joué', chaud: 'très joué' },
+  chaud: { nom: 'Forme récente', froid: 'Sorti peu récemment', chaud: 'Souvent sorti récemment' },
+  retard: { nom: 'Retard', froid: 'Sorti il y a peu', chaud: 'Absent depuis longtemps' },
+  frequence: { nom: 'Depuis 2004', froid: 'Moins sorti', chaud: 'Plus sorti' },
+  foule: { nom: 'Joué par la foule', froid: 'Très peu joué', chaud: 'Très joué' },
 };
+// Les deux familles d'enquêtes, chacune avec sa couleur (variables CSS du thème).
+const FAMILLES = { insolites: { nom: 'Dates insolites', classe: 'famille-dates' }, boulier: { nom: 'Anomalies du boulier', classe: 'famille-boulier' } };
+const AIDE_JAUGE = 'La zone claire est ce que le hasard normal donne 19 fois sur 20. Le trait fin est la moyenne du hasard. Le repère épais est ce qui a été observé.';
+// La teinte d'une boule, après passage par les seuils réglés par l'utilisateur.
+const teinte = (t) => couleurThermique(t, pal, reglages.seuils);
 
 let D = null, ctx = null, pal = null, indexDates = null, dernierTirage = null;
 let stockage = localStorage;
@@ -45,7 +50,7 @@ function habiller() {
 }
 
 function boule(valeur, chaleur, etoile = false, classe = '') {
-  return `<span class="boule${etoile ? ' etoile' : ''}${classe}" style="--t:${couleurThermique(chaleur, pal)}">${valeur}</span>`;
+  return `<span class="boule${etoile ? ' etoile' : ''}${classe}" style="--t:${teinte(chaleur)}">${valeur}</span>`;
 }
 
 // `bons` : numéros et étoiles sortis au tirage, mis en valeur (carnet).
@@ -299,11 +304,13 @@ function contexteFrequence() {
 // Le trait pointillé marque les 10 % attendus.
 function barres(cases, libelles) {
   const max = Math.max(...cases.map((c) => pourcent(c) || 0), 15);
+  // chaque barre porte son étiquette : au survol (ordinateur) ou au toucher (téléphone), elle s'affiche sous le graphique
   return `<div class="barres"><b class="repere" style="bottom:${(100 * 10) / max}%"></b>${cases.map((c) => {
-    const part = pourcent(c) || 0;
-    return `<i style="height:${(100 * part) / max}%;background:${couleurThermique((part - 5) / 10, pal)}" title="${c.sorties} sur ${c.tirages}"></i>`;
+    const part = pourcent(c) || 0, info = `${c.annee} : ${nombre(part, 1)} % des tirages (${c.sorties} sorties sur ${c.tirages})`;
+    return `<i style="height:${Math.max(2, (100 * part) / max)}%;background:${couleurThermique((part - 5) / 10, pal)}" title="${info}" data-info="${info}" tabindex="0"></i>`;
   }).join('')}</div>` +
     `<div class="barres-textes"><span>${libelles[0]}</span><span>${libelles[1]}</span></div>` +
+    '<p class="barres-info" id="barres-info">Touchez ou survolez une barre pour voir l\'année et la valeur exacte.</p>' +
     '<div class="echelle"></div><div class="echelle-textes"><span>moins que prévu</span><span>pointillé : les 10 % attendus</span><span>plus que prévu</span></div>';
 }
 
@@ -312,10 +319,9 @@ function htmlIdentite(n) {
   const N = D.numeros, i = n - 1;
   const lignes = N.mesures.filter((m) => m.valeurs[i] !== null).map((m) => {
     const f = { obs: m.valeurs[i], att: m.attendu[i], bas: m.bas[i], haut: m.haut[i] }, j = jauge(f);
-    const reponse = m.hors[i] ? `<span class="reponse oui">OUI ${m.hors[i] > 0 ? '▲ au-dessus' : '▼ en dessous'}</span>` : '<span class="reponse non">NON</span>';
-    return `<div class="enquete${m.hors[i] ? ' marquee' : ''}"><div class="entete"><span>${m.nom}</span>${reponse}</div>` +
+    return `<div class="enquete${m.hors[i] ? ' marquee' : ''}"><div class="entete"><span>${m.nom}</span>${badge(m.hors[i] !== 0, m.hors[i] > 0 ? '▲ au-dessus' : '▼ en dessous')}</div>` +
       `<div class="mesure"><span class="discret">${m.precisions[i] ?? ''}</span><b>${nombre(f.obs, m.dec)}</b></div>` +
-      `<div class="piste"><i class="hasard" style="left:${j.gauche}%;width:${j.largeur}%"></i><i class="attendu" style="left:${j.attendu}%"></i><i class="observe" style="left:${j.observe}%"></i></div>` +
+      `<div class="piste" title="${AIDE_JAUGE}"><i class="hasard" style="left:${j.gauche}%;width:${j.largeur}%"></i><i class="attendu" style="left:${j.attendu}%"></i><i class="observe" style="left:${j.observe}%"></i></div>` +
       `<div class="echelle-textes"><span>attendu ${nombre(f.att, Math.max(1, m.dec))}</span><span>le hasard : de ${nombre(f.bas, m.dec)} à ${nombre(f.haut, m.dec)}</span></div>` +
       `<p class="discret">${m.aide}</p></div>`;
   });
@@ -325,17 +331,22 @@ function htmlIdentite(n) {
     `Sur les ${nombre(N.nb_cases)} cases des 50 numéros, ${nombre(N.nb_hors)} sont des « oui », pour ${nombre(N.attendues_par_hasard)} attendus. ` +
     'Plusieurs mesures racontent la même chose sous des angles différents (un numéro peu sorti l\'est aussi le mardi, depuis 2016, etc.) : ' +
     'plusieurs « oui » sur un même numéro ne sont donc pas autant de preuves séparées. Aucun ne dit quoi jouer.</p>' +
-    `<details class="detail"${oui ? ' open' : ''}><summary>Voir les ${lignes.length} mesures</summary>${lignes.join('')}</details>`;
+    `<details class="detail" id="identite"${oui ? ' open' : ''}><summary>Voir les ${lignes.length} mesures</summary>${lignes.join('')}` +
+    '<div class="ligne"><button class="bouton" data-action="haut">↑ Retour en haut</button><button class="bouton" data-action="replier">Fermer les 20 mesures</button></div></details>';
+}
+
+// Le badge de réponse, avec sa question écrite au-dessus : on sait toujours à quoi répond le OUI ou le NON.
+function badge(oui, sens) {
+  return `<span class="question-badge"><small>Écart au hasard ?</small>${oui ? `<span class="reponse oui">OUI ${sens}</span>` : '<span class="reponse non">NON</span>'}</span>`;
 }
 
 function htmlEnquetes(n) {
   const enquetes = enquetesDuNumero(n, D), b = bilanEnquetes(enquetes);
-  const noms = { insolites: 'Dates insolites', boulier: 'Anomalies du boulier' };
   const valeur = (x) => (x.v === null || x.v === undefined ? '—' : typeof x.v === 'number' && x.dec !== null ? nombre(x.v, x.dec) : x.v);
   const carte = (e) => {
-    const reponse = e.inhabituel === null ? '' : e.inhabituel
-      ? `<span class="reponse oui">OUI ${e.sens}</span>` : '<span class="reponse non">NON</span>';
-    return `<div class="enquete${e.inhabituel ? ' marquee' : ''}"><div class="entete"><b>${e.titre}</b>${reponse}</div>` +
+    const reponse = e.inhabituel === null ? '' : badge(e.inhabituel, e.sens);
+    return `<div class="enquete ${FAMILLES[e.bloc].classe}${e.inhabituel ? ' marquee' : ''}"><div class="entete"><b>${e.titre}</b>${reponse}</div>` +
+      `<p class="definition-fiche">${e.definition ?? ''}</p>` +
       `<p class="discret">${e.fenetre}${e.suivi ? ' — numéro suivi par cette enquête' : ''}</p>` +
       `<ul>${e.faits.map((x) => `<li>${x.t} : <b>${valeur(x)}</b></li>`).join('')}</ul>` +
       (e.phrase ? `<p class="resume">${e.phrase}</p>` : '') + '</div>';
@@ -343,7 +354,8 @@ function htmlEnquetes(n) {
   return `<h3>Ce numéro dans les enquêtes</h3><p class="discret">Pour chaque enquête, la question est la même : ce numéro sort-il de ce que le hasard donne d'ordinaire ? ` +
     `Réponse pour le ${n} : <b>OUI dans ${b.inhabituelles} enquête${b.inhabituelles > 1 ? 's' : ''} sur ${b.jugees}</b>. ` +
     `Par pur hasard, on attend environ ${nombre(b.attendues, 1)} « oui » par numéro : un ou deux « oui » n'ont donc rien d'étonnant, et aucun ne dit quoi jouer.</p>` +
-    ['insolites', 'boulier'].map((bloc) => `<details class="detail"${enquetes.some((e) => e.bloc === bloc && e.inhabituel) ? ' open' : ''}><summary>${noms[bloc]} (${enquetes.filter((e) => e.bloc === bloc).length})</summary>` +
+    ['insolites', 'boulier'].map((bloc) => `<details class="detail famille ${FAMILLES[bloc].classe}"${enquetes.some((e) => e.bloc === bloc && e.inhabituel) ? ' open' : ''}>` +
+      `<summary><span class="etiquette-famille">${FAMILLES[bloc].nom}</span> ${enquetes.filter((e) => e.bloc === bloc).length} enquêtes</summary>` +
       enquetes.filter((e) => e.bloc === bloc).map(carte).join('') + '</details>').join('');
 }
 
@@ -371,22 +383,58 @@ function ficheHtml(n) {
     `<h3>Sorti le plus souvent avec</h3><div class="boules">${f.compagnons.map(([m, c]) => boule(m, chaleurs(etat.mode)[0][m - 1]) + `<span class="discret">${c} fois</span>`).join('')}</div>` +
     `<p class="discret">Un compagnon quelconque est attendu ${nombre(f.compagnonAttendu, 1)} fois. Parmi 49 compagnons, il y en a toujours quelques-uns en tête.</p>` +
     htmlIdentite(n) + htmlEnquetes(n) +
-    '<p class="transparence">Cette fiche décrit le passé. Le laboratoire a vérifié qu\'un numéro chaud ou en retard n\'a pas plus de chances de sortir au tirage suivant.</p></div>';
+    '<p class="transparence">Cette fiche décrit le passé. Le laboratoire a vérifié qu\'un numéro chaud ou en retard n\'a pas plus de chances de sortir au tirage suivant.</p>' +
+    '<div class="ligne"><button class="bouton" data-action="haut">↑ Retour en haut</button><button class="bouton" data-action="fermer">Fermer la fiche</button></div></div>';
+}
+
+// Le plateau et sa légende, redessinés seuls quand on déplace un seuil (la fiche ouverte en dessous ne bouge pas).
+function htmlPlateau() {
+  const [cn, ce] = chaleurs(etat.mode), m = MODES[etat.mode], s = reglages.seuils;
+  return `<div class="echelle" style="background:linear-gradient(90deg, var(--froid) ${s.froid}%, var(--chaud) ${s.chaud}%)"></div>` +
+    `<div class="echelle-textes legende-filtre"><span>${m.froid}</span><span>${m.chaud}</span></div>` +
+    (etat.mode === 'chaud' ? `<p class="discret">Sur les ${reglages.fenetreChaud} derniers tirages.</p>` : '') +
+    `<div class="plateau" style="margin-top:10px">${cn.map((c, i) => `<button class="boule${etat.choisi === i + 1 ? ' choisi' : ''}" style="--t:${teinte(c)}" data-numero="${i + 1}">${i + 1}</button>`).join('')}</div>` +
+    `<p class="legende-filtre" style="margin:12px 0 4px">Les 12 étoiles</p>` +
+    `<div class="rangee-etoiles">${ce.map((c, i) => `<span class="boule etoile" style="--t:${teinte(c)}">${i + 1}</span>`).join('')}</div>`;
 }
 
 function vueNumeros(racine) {
-  const [cn, ce] = chaleurs(etat.mode), m = MODES[etat.mode];
-  racine.innerHTML = '<div class="carte"><h2>Les 50 numéros</h2><div class="puces">' +
+  const s = reglages.seuils;
+  racine.innerHTML = '<div class="carte" id="haut-numeros"><h2>Les 50 numéros</h2><div class="puces filtres">' +
     Object.entries(MODES).map(([cle, x]) => `<button class="puce${cle === etat.mode ? ' actif' : ''}" data-mode="${cle}">${x.nom}</button>`).join('') + '</div>' +
-    `<div class="echelle"></div><div class="echelle-textes"><span>${m.froid}</span><span>${m.chaud}</span></div>` +
-    (etat.mode === 'chaud' ? `<p class="discret">Sur les ${reglages.fenetreChaud} derniers tirages.</p>` : '') +
-    `<div class="plateau" style="margin-top:10px">${cn.map((c, i) => `<button class="boule${etat.choisi === i + 1 ? ' choisi' : ''}" style="--t:${couleurThermique(c, pal)}" data-numero="${i + 1}">${i + 1}</button>`).join('')}</div>` +
-    `<div class="rangee-etoiles">${ce.map((c, i) => `<span class="boule etoile" style="--t:${couleurThermique(c, pal)}">${i + 1}</span>`).join('')}</div>` +
-    '<p class="discret" style="margin-top:10px">Touchez un numéro pour ouvrir sa fiche. La ligne du bas montre les 12 étoiles.</p></div>' +
+    `<div id="plateau">${htmlPlateau()}</div>` +
+    '<p class="discret" style="margin-top:10px">Touchez un numéro pour ouvrir sa fiche.</p>' +
+    '<details id="d-seuils"><summary>Régler les seuils du dégradé</summary>' +
+    '<p class="discret">Les couleurs classent les numéros du plus froid (0 %) au plus chaud (100 %). En resserrant les seuils, seuls les extrêmes gardent une couleur franche.</p>' +
+    `<div class="curseur"><span>Tout froid sous</span><input type="range" id="s-froid" min="0" max="90" step="5" value="${s.froid}"><span id="s-froid-v">${s.froid} %</span></div>` +
+    `<div class="curseur"><span>Tout chaud dès</span><input type="range" id="s-chaud" min="10" max="100" step="5" value="${s.chaud}"><span id="s-chaud-v">${s.chaud} %</span></div>` +
+    '<div class="ligne"><button class="bouton" id="s-defaut">Revenir au dégradé complet</button></div></details></div>' +
     `<div id="fiche">${etat.choisi ? ficheHtml(etat.choisi) : ''}</div>`;
   racine.querySelectorAll('[data-mode]').forEach((b) => { b.onclick = () => { etat.mode = b.dataset.mode; afficher(); }; });
-  racine.querySelectorAll('[data-numero]').forEach((b) => {
+  const brancherPlateau = () => racine.querySelectorAll('[data-numero]').forEach((b) => {
     b.onclick = () => { etat.choisi = Number(b.dataset.numero); afficher(); $('fiche').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  });
+  brancherPlateau();
+  const seuil = (cle) => () => {
+    reglages.seuils = { ...reglages.seuils, [cle]: Number($('s-' + cle).value) };
+    memoriser();
+    $('s-froid').value = reglages.seuils.froid; $('s-chaud').value = reglages.seuils.chaud;
+    $('s-froid-v').textContent = reglages.seuils.froid + ' %'; $('s-chaud-v').textContent = reglages.seuils.chaud + ' %';
+    $('plateau').innerHTML = htmlPlateau(); brancherPlateau();
+  };
+  $('s-froid').oninput = seuil('froid'); $('s-chaud').oninput = seuil('chaud');
+  $('s-defaut').onclick = () => { reglages.seuils = { froid: 0, chaud: 100 }; memoriser(); afficher(); $('d-seuils').open = true; };
+  // étiquette des barres par année : au survol, au toucher ou au clavier
+  racine.querySelectorAll('.barres i[data-info]').forEach((barre) => {
+    const montrer = () => { $('barres-info').textContent = barre.dataset.info; racine.querySelectorAll('.barres i.vise').forEach((x) => x.classList.remove('vise')); barre.classList.add('vise'); };
+    barre.onmouseenter = montrer; barre.onclick = montrer; barre.onfocus = montrer;
+  });
+  racine.querySelectorAll('[data-action]').forEach((b) => {
+    b.onclick = () => {
+      if (b.dataset.action === 'fermer') { etat.choisi = null; afficher(); }
+      if (b.dataset.action === 'replier') $('identite').open = false;
+      $(b.dataset.action === 'replier' ? 'fiche' : 'haut-numeros').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
   });
 }
 
@@ -399,7 +447,7 @@ function tableauDetail(detail) {
   const cellule = (x, c) => (x === null || x === undefined ? '—' : typeof x === 'number' && c.dec !== null ? nombre(x, c.dec) : x);
   return `<details class="detail"><summary>Analyse détaillée (${detail.lignes.length} lignes)</summary><p class="discret">${detail.titre}. Touchez un titre de colonne pour trier.</p>` +
     '<div class="defile haut"><table class="triable"><thead><tr>' + detail.colonnes.map((c, i) => `<th data-col="${i}">${c.t}</th>`).join('') + '</tr></thead><tbody>' +
-    detail.lignes.map((l) => `<tr${l.some((x) => typeof x === 'string' && /^[▲▼]/.test(x)) ? ' class="hors"' : ''}>` +
+    detail.lignes.map((l) => `<tr${l.some((x) => typeof x === 'string' && x.startsWith('▲')) ? ' class="hors dessus"' : l.some((x) => typeof x === 'string' && x.startsWith('▼')) ? ' class="hors dessous"' : ''}>` +
       l.map((x, i) => `<td data-v="${x ?? ''}">${cellule(x, detail.colonnes[i])}</td>`).join('') + '</tr>').join('') +
     `</tbody></table></div>${detail.note ? `<p class="discret">${detail.note}</p>` : ''}</details>`;
 }
@@ -427,14 +475,16 @@ function carteInsolite(f) {
   if (f.p !== null) {
     const j = jauge(f);
     corps = `<div class="mesure"><span>${f.mesure}</span><b>${nombre(f.obs, f.dec)}</b></div>` +
-      `<div class="piste"><i class="hasard" style="left:${j.gauche}%;width:${j.largeur}%"></i><i class="attendu" style="left:${j.attendu}%"></i><i class="observe" style="left:${j.observe}%"></i></div>` +
-      `<div class="echelle-textes"><span>attendu ${nombre(f.att, f.dec)}</span><span>le hasard : de ${nombre(f.bas, f.dec)} à ${nombre(f.haut, f.dec)}</span></div>`;
+      `<div class="piste" title="${AIDE_JAUGE}"><i class="hasard" style="left:${j.gauche}%;width:${j.largeur}%"></i><i class="attendu" style="left:${j.attendu}%"></i><i class="observe" style="left:${j.observe}%"></i></div>` +
+      `<div class="echelle-textes"><span>attendu ${nombre(f.att, f.dec)}</span><span>le hasard : de ${nombre(f.bas, f.dec)} à ${nombre(f.haut, f.dec)}</span></div>` +
+      `<details class="aide-jauge"><summary>ⓘ Comment lire cette jauge</summary><p class="discret">${AIDE_JAUGE}</p></details>` +
+      `<p class="resume">${resumeFiche(f)}</p>`;
   }
   const periodes = f.par_periode.length
     ? `<p><b>Sur deux périodes séparées.</b> ${f.par_periode.map((q) => `${q.nom} : ${nombre(q.obs, f.dec)} (${q.n} tirages)`).join(' ; ')}.</p>` : '';
   const exemples = f.exemples.length
     ? '<h3>Derniers tirages concernés</h3>' + f.exemples.map((t) => `<p class="discret">${dateFr(t[0])}</p>${boulesGrille({ numeros: t.slice(1, 6), etoiles: t.slice(6, 8) })}`).join('') : '';
-  return `<div class="carte"><h2>${f.numero} · ${f.titre}</h2><p class="discret">${f.fenetre} — ${cas(f)}</p>${corps}` +
+  return `<div class="carte"><h2>${f.numero} · ${f.titre}</h2><p class="definition-fiche">${f.definition ?? ''}</p><p class="discret">${f.fenetre} — ${cas(f)}</p>${corps}` +
     (f.complement ? `<p class="constat">${f.complement}</p>` : '') +
     `<p class="transparence statut-${f.statut}">${f.lecture}</p>` +
     (f.detail ? tableauDetail(f.detail) : '') +
@@ -450,13 +500,13 @@ const ENQUETES = {
 
 function htmlEnquete(cle) {
   const I = D[cle];
-  return `<div class="carte"><h2>${ENQUETES[cle].nom}</h2><p>${ENQUETES[cle].accroche}</p>` +
+  return `<div class="carte famille ${FAMILLES[cle].classe}"><h2><span class="etiquette-famille">${ENQUETES[cle].nom}</span></h2><p>${ENQUETES[cle].accroche}</p>` +
     `<div class="mesure"><span>Écarts inhabituels</span><b>${I.nb_inhabituelles} sur ${I.nb_testees}</b></div>` +
     `<div class="mesure"><span>Attendus par pur hasard</span><b>environ ${nombre(I.attendues_par_hasard, 1)}</b></div>` +
     `<p class="transparence">Quand on teste ${I.nb_testees} pistes, il est normal qu'une ressorte par chance. En tenant compte de tous les essais, ` +
     `une curiosité aussi forte que la plus étonnante arrive par hasard ${nombre(I.p_global * 100)} fois sur 100. Aucune fiche ne dit quoi jouer.</p>` +
     '<p class="discret">Sur chaque jauge : la zone claire est ce que le hasard donne 19 fois sur 20, le trait fin l\'attendu, le repère épais l\'observé.</p></div>' +
-    I.fiches.map(carteInsolite).join('');
+    `<div class="${FAMILLES[cle].classe}">${I.fiches.map(carteInsolite).join('')}</div>`;
 }
 
 function htmlRejeu() {
@@ -492,25 +542,48 @@ function vueMesures(racine) {
 
 // ---------- Réglages ----------
 
-function vueReglages(racine) {
-  racine.innerHTML = '<div class="carte"><h2>Thème</h2><div class="themes">' +
-    Object.entries(THEMES).map(([cle, t]) => `<button class="theme${cle === reglages.theme ? ' actif' : ''}" data-theme-choix="${cle}" style="background:${t.fond};color:${t.texte};font-family:${t.police.replace(/"/g, '\'')}">` +
-      `<b style="color:${t.accent}">${t.nom}</b><br><small>${t.description}</small><span class="pastilles">${[t.accent, t.accent2, t.accent3, t.froid, t.chaud].map((c) => `<i style="background:${c}"></i>`).join('')}</span></button>`).join('') +
-    '</div></div>' +
-    '<div class="carte"><h2>Personnaliser</h2>' +
-    `<div class="ligne"><label>Boules froides <input type="color" id="p-froid" value="${pal.froid}"></label><label>Boules chaudes <input type="color" id="p-chaud" value="${pal.chaud}"></label></div>` +
-    `<div class="ligne"><label style="flex:1">Lueur néon <input type="range" id="p-lueur" min="0" max="2" step="0.1" value="${pal.lueur}"></label></div>` +
+// L'aperçu en direct du studio : une carte miniature qui montre toutes les couleurs à l'œuvre.
+function htmlApercu() {
+  const j = jauge({ bas: 3, haut: 18, att: 10, obs: 21 });
+  return '<div class="apercu"><p class="legende-filtre">Aperçu en direct</p><div class="carte">' +
+    '<div class="entete"><h2>Titre d\'une carte</h2>' + badge(true, '▲ au-dessus') + '</div>' +
+    '<p>Texte principal, <span class="discret">texte secondaire</span>.</p>' +
     `<div class="boules">${[0, 0.25, 0.5, 0.75, 1].map((t, i) => boule(i * 12 + 1, t)).join('')}${boule(7, 0.5, true)}</div>` +
-    '<div class="ligne"><button class="bouton" id="p-defaut">Revenir aux couleurs du thème</button></div></div>' +
+    `<div class="piste" style="margin-top:12px"><i class="hasard" style="left:${j.gauche}%;width:${j.largeur}%"></i><i class="attendu" style="left:${j.attendu}%"></i><i class="observe" style="left:${j.observe}%"></i></div>` +
+    '<p class="resume">Encadré de synthèse : une phrase complète, dans la couleur d\'accent secondaire.</p>' +
+    '<p class="transparence">Phrase de transparence, bordée par l\'accent des encadrés.</p>' +
+    '<div class="puces"><button class="puce actif">Filtre actif</button><button class="puce">Filtre</button></div>' +
+    '<button class="bouton principal">BOUTON PRINCIPAL</button></div></div>';
+}
+
+function vueReglages(racine) {
+  const carteTheme = ([cle, t]) => `<button class="theme${cle === reglages.theme ? ' actif' : ''}" data-theme-choix="${cle}" style="background:${t.fond};color:${t.texte};border-color:${cle === reglages.theme ? t.accent : t.bord};font-family:${t.police.replace(/"/g, '\'')}">` +
+    `<b style="color:${t.accent}">${t.nom}</b><br><small>${t.description}</small><span class="pastilles">${[t.accent, t.accent2, t.accent3, t.froid, t.chaud].map((c) => `<i style="background:${c}"></i>`).join('')}</span></button>`;
+  const modifiees = COULEURS_PERSO.filter(([cle]) => reglages.perso[cle]).length + (reglages.perso.lueur === null ? 0 : 1);
+  racine.innerHTML = '<div class="carte"><h2>Thème</h2>' +
+    CATEGORIES.map(([cat, nom]) => `<h3>${nom}</h3><div class="themes">${Object.entries(THEMES).filter(([, t]) => t.categorie === cat).map(carteTheme).join('')}</div>`).join('') +
+    '</div>' +
+    '<div class="carte"><h2>Studio de couleurs</h2>' +
+    `<p class="discret">Chaque couleur du thème « ${THEMES[reglages.theme].nom} » peut être remplacée. L'aperçu et toute l'application suivent en direct. ` +
+    `${modifiees ? `${modifiees} réglage${modifiees > 1 ? 's' : ''} personnalisé${modifiees > 1 ? 's' : ''}.` : 'Aucun réglage personnalisé pour l\'instant.'}</p>` +
+    `<div class="studio">${COULEURS_PERSO.map(([cle, nom]) => `<label class="${reglages.perso[cle] ? 'modifie' : ''}"><input type="color" data-couleur="${cle}" value="${pal[cle]}"><span>${nom}</span></label>`).join('')}</div>` +
+    `<div class="curseur"><span>Lueur néon</span><input type="range" id="p-lueur" min="0" max="2" step="0.1" value="${pal.lueur}"><span id="p-lueur-v">${nombre(pal.lueur, 1)}</span></div>` +
+    `<div id="apercu">${htmlApercu()}</div>` +
+    '<div class="ligne"><button class="bouton" id="p-defaut">Revenir aux couleurs du thème</button></div>' +
+    '<p class="discret">Les seuils du dégradé froid → chaud se règlent dans l\'onglet Numéros. Un deck enregistre aussi vos couleurs.</p></div>' +
     '<div class="carte"><h2>À propos</h2><p>La Bise fonctionne sans connexion une fois installée. Vos réglages, vos decks et votre carnet restent sur cet appareil ; rien n\'est envoyé.</p>' +
     `<p class="discret">Données du ${dateFr(D.genere_le)}.</p><div class="ligne"><button class="bouton" id="p-mentions">Mentions légales et prévention</button></div></div>`;
   racine.querySelectorAll('[data-theme-choix]').forEach((b) => {
     b.onclick = () => { reglages.theme = b.dataset.themeChoix; memoriser(); habiller(); afficher(); };
   });
-  $('p-froid').onchange = () => { reglages.perso.froid = $('p-froid').value; memoriser(); habiller(); afficher(); };
-  $('p-chaud').onchange = () => { reglages.perso.chaud = $('p-chaud').value; memoriser(); habiller(); afficher(); };
-  $('p-lueur').oninput = () => { reglages.perso.lueur = Number($('p-lueur').value); memoriser(); habiller(); };
-  $('p-defaut').onclick = () => { reglages.perso = { froid: null, chaud: null, lueur: null }; memoriser(); habiller(); afficher(); };
+  // en direct : la page entière suit par les variables CSS ; seul l'aperçu (boules calculées) est redessiné
+  const enDirect = () => { memoriser(); habiller(); $('apercu').innerHTML = htmlApercu(); };
+  racine.querySelectorAll('[data-couleur]').forEach((champ) => {
+    champ.oninput = () => { reglages.perso[champ.dataset.couleur] = champ.value; champ.parentElement.classList.add('modifie'); enDirect(); };
+    champ.onchange = () => afficher();
+  });
+  $('p-lueur').oninput = () => { reglages.perso.lueur = Number($('p-lueur').value); $('p-lueur-v').textContent = nombre(reglages.perso.lueur, 1); enDirect(); };
+  $('p-defaut').onclick = () => { reglages.perso = {}; memoriser(); habiller(); afficher(); };
   $('p-mentions').onclick = () => mentions(false);
 }
 
