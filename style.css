@@ -121,6 +121,13 @@ th { color: var(--texte2); font-weight: 400; }
 .enquete .entete { margin: 0; }
 .enquete ul { margin: 4px 0; font-size: 14px; }
 .enquete li { margin: 3px 0; }
+/* Le bandeau de résumé : la phrase complète d'une enquête pour le numéro, dans une autre couleur que le reste. */
+.resume {
+  margin: 8px 0 6px; padding: 10px 12px; border-radius: var(--rayon); font-size: 14px; line-height: 1.5; color: var(--texte);
+  background: color-mix(in srgb, var(--accent2) 16%, var(--fond)); border: 1px solid color-mix(in srgb, var(--accent2) 60%, transparent);
+  border-left: 4px solid var(--accent2); box-shadow: 0 0 calc(8px * var(--lueur)) color-mix(in srgb, var(--accent2) 30%, transparent);
+}
+.enquete.marquee .resume { background: color-mix(in srgb, var(--chaud) 16%, var(--fond)); border-color: color-mix(in srgb, var(--chaud) 60%, transparent); border-left-color: var(--chaud); box-shadow: 0 0 calc(8px * var(--lueur)) color-mix(in srgb, var(--chaud) 30%, transparent); }
 .reponse { font-weight: 700; padding: 2px 8px; border-radius: var(--rayon); border: 1px solid var(--texte2); color: var(--texte2); white-space: nowrap; font-size: 13px; }
 .reponse.oui { border-color: var(--chaud); color: var(--chaud); }
 .barres { position: relative; }

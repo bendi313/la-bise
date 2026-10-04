@@ -1,6 +1,6 @@
 // Fonctionnement hors connexion. Avec du réseau, on prend toujours la dernière version et on la garde ;
 // sans réseau, on ressort la copie gardée sur l'appareil.
-const CACHE = 'labise-v8';
+const CACHE = 'labise-v9';
 const COQUILLE = ['./', 'index.html', 'style.css', 'app.js', 'themes.js', 'labo.js', 'textes.js',
   'moteur/criteres.js', 'moteur/reglages.js', 'moteur/generateur.js', 'moteur/export.js',
   'moteur/rejeu.js', 'moteur/carnet.js', 'moteur/decks.js',

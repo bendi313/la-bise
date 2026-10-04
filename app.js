@@ -337,7 +337,8 @@ function htmlEnquetes(n) {
       ? `<span class="reponse oui">OUI ${e.sens}</span>` : '<span class="reponse non">NON</span>';
     return `<div class="enquete${e.inhabituel ? ' marquee' : ''}"><div class="entete"><b>${e.titre}</b>${reponse}</div>` +
       `<p class="discret">${e.fenetre}${e.suivi ? ' — numéro suivi par cette enquête' : ''}</p>` +
-      `<ul>${e.faits.map((x) => `<li>${x.t} : <b>${valeur(x)}</b></li>`).join('')}</ul></div>`;
+      `<ul>${e.faits.map((x) => `<li>${x.t} : <b>${valeur(x)}</b></li>`).join('')}</ul>` +
+      (e.phrase ? `<p class="resume">${e.phrase}</p>` : '') + '</div>';
   };
   return `<h3>Ce numéro dans les enquêtes</h3><p class="discret">Pour chaque enquête, la question est la même : ce numéro sort-il de ce que le hasard donne d'ordinaire ? ` +
     `Réponse pour le ${n} : <b>OUI dans ${b.inhabituelles} enquête${b.inhabituelles > 1 ? 's' : ''} sur ${b.jugees}</b>. ` +
