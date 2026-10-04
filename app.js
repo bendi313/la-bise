@@ -8,8 +8,8 @@ import { rejouer } from './moteur/rejeu.js';
 import * as carnetOutils from './moteur/carnet.js';
 import * as deckOutils from './moteur/decks.js';
 import { THEMES, appliquer, palette, couleurThermique } from './themes.js';
-import { ficheNumero, pourcent, jauge } from './labo.js';
-import { phraseProfil, phraseFetiches, nombre, signe, dateFr, MENTIONS } from './textes.js';
+import { ficheNumero, pourcent, jauge, enquetesDuNumero, bilanEnquetes } from './labo.js';
+import { phraseProfil, phraseFetiches, definitionStyle, nombre, signe, dateFr, MENTIONS } from './textes.js';
 
 const $ = (id) => document.getElementById(id);
 const AFFICHEES_MAX = 50;
@@ -59,9 +59,11 @@ function boulesGrille(g, bons = null) {
 
 function transparence() {
   const actif = profilActif(reglages);
+  const bloc = (cle, nom) => `<p class="definition"><b>${nom} :</b> ${definitionStyle(cle, reglages)}</p><p class="transparence"><b>Ce que le laboratoire a mesuré.</b> ${phraseProfil(cle, D.rejeu)}</p>`;
   const styles = actif !== 'mixte'
-    ? `<p class="transparence">${phraseProfil(actif, D.rejeu)}</p>`
-    : Object.keys(NOMS_CRITERES).filter((c) => reglages.poids[c] > 0).map((c) => `<p class="transparence"><b>${NOMS_CRITERES[c]}.</b> ${phraseProfil(c, D.rejeu)}</p>`).join('');
+    ? bloc(actif, PROFILS.find((p) => p.cle === actif).nom)
+    : '<p class="definition"><b>Mon mélange :</b> les grilles sont notées sur plusieurs styles à la fois, selon les poids des « Réglages fins ».</p>' +
+      Object.keys(NOMS_CRITERES).filter((c) => reglages.poids[c] > 0).map((c) => bloc(c, PROFILS.find((p) => p.cle === c).nom)).join('');
   const fetiches = phraseFetiches(reglages.fetiches, D.populaire);
   return styles + (fetiches ? `<p class="transparence">${fetiches}</p>` : '');
 }
@@ -293,18 +295,50 @@ function contexteFrequence() {
   return memoFrequence;
 }
 
+// Barres colorées du froid au chaud : une barre à 10 % (l'attendu) est à mi-chemin, 5 % ou moins est tout froid, 15 % ou plus tout chaud.
+// Le trait pointillé marque les 10 % attendus.
 function barres(cases, libelles) {
-  const max = Math.max(...cases.map((c) => pourcent(c) || 0), 1);
-  return `<div class="barres">${cases.map((c) => `<i style="height:${(100 * (pourcent(c) || 0)) / max}%" title="${c.sorties} sur ${c.tirages}"></i>`).join('')}</div>` +
-    `<div class="barres-textes"><span>${libelles[0]}</span><span>${libelles[1]}</span></div>`;
+  const max = Math.max(...cases.map((c) => pourcent(c) || 0), 15);
+  return `<div class="barres"><b class="repere" style="bottom:${(100 * 10) / max}%"></b>${cases.map((c) => {
+    const part = pourcent(c) || 0;
+    return `<i style="height:${(100 * part) / max}%;background:${couleurThermique((part - 5) / 10, pal)}" title="${c.sorties} sur ${c.tirages}"></i>`;
+  }).join('')}</div>` +
+    `<div class="barres-textes"><span>${libelles[0]}</span><span>${libelles[1]}</span></div>` +
+    '<div class="echelle"></div><div class="echelle-textes"><span>moins que prévu</span><span>pointillé : les 10 % attendus</span><span>plus que prévu</span></div>';
+}
+
+function htmlEnquetes(n) {
+  const enquetes = enquetesDuNumero(n, D), b = bilanEnquetes(enquetes);
+  const noms = { insolites: 'Dates insolites', boulier: 'Anomalies du boulier' };
+  const valeur = (x) => (x.v === null || x.v === undefined ? '—' : typeof x.v === 'number' && x.dec !== null ? nombre(x.v, x.dec) : x.v);
+  const carte = (e) => {
+    const reponse = e.inhabituel === null ? '' : e.inhabituel
+      ? `<span class="reponse oui">OUI ${e.sens}</span>` : '<span class="reponse non">NON</span>';
+    return `<div class="enquete${e.inhabituel ? ' marquee' : ''}"><div class="entete"><b>${e.titre}</b>${reponse}</div>` +
+      `<p class="discret">${e.fenetre}${e.suivi ? ' — numéro suivi par cette enquête' : ''}</p>` +
+      `<ul>${e.faits.map((x) => `<li>${x.t} : <b>${valeur(x)}</b></li>`).join('')}</ul></div>`;
+  };
+  return `<h3>Ce numéro dans les enquêtes</h3><p class="discret">Pour chaque enquête, la question est la même : ce numéro sort-il de ce que le hasard donne d'ordinaire ? ` +
+    `Réponse pour le ${n} : <b>OUI dans ${b.inhabituelles} enquête${b.inhabituelles > 1 ? 's' : ''} sur ${b.jugees}</b>. ` +
+    `Par pur hasard, on attend environ ${nombre(b.attendues, 1)} « oui » par numéro : un ou deux « oui » n'ont donc rien d'étonnant, et aucun ne dit quoi jouer.</p>` +
+    ['insolites', 'boulier'].map((bloc) => `<details class="detail"${enquetes.some((e) => e.bloc === bloc && e.inhabituel) ? ' open' : ''}><summary>${noms[bloc]} (${enquetes.filter((e) => e.bloc === bloc).length})</summary>` +
+      enquetes.filter((e) => e.bloc === bloc).map(carte).join('') + '</details>').join('');
 }
 
 function ficheHtml(n) {
   const f = ficheNumero(n, D.tirages);
   const ligne = (nom, c) => `<tr><td>${nom}</td><td>${c.sorties} sur ${nombre(c.tirages)}</td><td>${nombre(pourcent(c), 1)} %</td></tr>`;
   const groupe = (objet) => Object.entries(objet).map(([nom, c]) => ligne(nom, c)).join('');
+  const rangDe = (liste, i, sens = -1) => 1 + liste.filter((x) => (sens < 0 ? x > liste[i] : x < liste[i])).length;
+  const tout = contexte(D, { ...reglages, fenetreChaud: D.tirages.length }).stats;
+  const populaires = D.populaire.numeros.map((x) => x ?? 0);
   return `<div class="carte"><h2>Numéro ${n}</h2>` +
     `<div class="mesure"><span>Sorties depuis 2004</span><b>${f.sorties} (attendu ${nombre(f.attendu, 1)})</b></div>` +
+    `<div class="mesure"><span>Classement par nombre de sorties</span><b>${rangDe(tout.sortiesN, n - 1)}e sur 50</b></div>` +
+    `<div class="mesure"><span>Depuis septembre 2016 (règle actuelle)</span><b>${f.regleActuelle.sorties} (attendu ${nombre(f.regleActuelle.tirages / 10, 1)})</b></div>` +
+    `<div class="mesure"><span>Sur les ${reglages.fenetreChaud} derniers tirages</span><b>${ctx.stats.chaudN[n - 1]} (attendu ${nombre(reglages.fenetreChaud / 10, 1)})</b></div>` +
+    `<div class="mesure"><span>Écart moyen entre deux sorties</span><b>${nombre(f.ecartMoyen, 1)} tirages (attendu 10)</b></div>` +
+    `<div class="mesure"><span>Classement « joué par la foule »</span><b>${rangDe(populaires, n - 1)}e sur 50</b></div>` +
     `<div class="mesure"><span>Dernière sortie</span><b>${f.derniereSortie ? dateFr(f.derniereSortie) : 'jamais'} — il y a ${pluriel(f.retard, 'tirage')}</b></div>` +
     `<div class="mesure"><span>Plus longue absence</span><b>${f.plusLongueAbsence} tirages</b></div>` +
     `<div class="mesure"><span>Joué par la foule</span><b>${signe(D.populaire.numeros[n - 1], 1)} % de gagnants quand il sort</b></div>` +
@@ -314,6 +348,7 @@ function ficheHtml(n) {
     '<p class="discret">Le hasard donne 10 % partout ; de petits écarts sont normaux.</p>' +
     `<h3>Sorti le plus souvent avec</h3><div class="boules">${f.compagnons.map(([m, c]) => boule(m, chaleurs(etat.mode)[0][m - 1]) + `<span class="discret">${c} fois</span>`).join('')}</div>` +
     `<p class="discret">Un compagnon quelconque est attendu ${nombre(f.compagnonAttendu, 1)} fois. Parmi 49 compagnons, il y en a toujours quelques-uns en tête.</p>` +
+    htmlEnquetes(n) +
     '<p class="transparence">Cette fiche décrit le passé. Le laboratoire a vérifié qu\'un numéro chaud ou en retard n\'a pas plus de chances de sortir au tirage suivant.</p></div>';
 }
 
@@ -337,6 +372,34 @@ function vueNumeros(racine) {
 
 const cas = (f) => `${nombre(f.n)} ${f.n > 1 ? f.unite_cas : f.unite_cas.replace(/s\b/g, '')}`;
 
+// Tableau détaillé d'une fiche : une ligne par numéro. Toucher un titre de colonne trie le tableau.
+function tableauDetail(detail) {
+  const cellule = (x, c) => (x === null || x === undefined ? '—' : typeof x === 'number' && c.dec !== null ? nombre(x, c.dec) : x);
+  return `<details class="detail"><summary>Analyse détaillée (${detail.lignes.length} lignes)</summary><p class="discret">${detail.titre}. Touchez un titre de colonne pour trier.</p>` +
+    '<div class="defile haut"><table class="triable"><thead><tr>' + detail.colonnes.map((c, i) => `<th data-col="${i}">${c.t}</th>`).join('') + '</tr></thead><tbody>' +
+    detail.lignes.map((l) => `<tr${l.some((x) => typeof x === 'string' && /^[▲▼]/.test(x)) ? ' class="hors"' : ''}>` +
+      l.map((x, i) => `<td data-v="${x ?? ''}">${cellule(x, detail.colonnes[i])}</td>`).join('') + '</tr>').join('') +
+    `</tbody></table></div>${detail.note ? `<p class="discret">${detail.note}</p>` : ''}</details>`;
+}
+
+function rendreTriables(racine) {
+  racine.querySelectorAll('table.triable th').forEach((th) => {
+    th.onclick = () => {
+      const corps = th.closest('table').tBodies[0], col = Number(th.dataset.col), sens = th.dataset.sens === 'haut' ? -1 : 1;
+      th.closest('tr').querySelectorAll('th').forEach((x) => { delete x.dataset.sens; });
+      th.dataset.sens = sens === 1 ? 'haut' : 'bas';
+      const valeur = (tr) => { const v = tr.cells[col].dataset.v; return v !== '' && !Number.isNaN(Number(v)) ? Number(v) : v; };
+      [...corps.rows].sort((a, b) => {
+        const x = valeur(a), y = valeur(b);
+        if (x === y) return 0;
+        if (x === '') return 1;
+        if (y === '') return -1;
+        return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'fr')) * sens;
+      }).forEach((tr) => corps.appendChild(tr));
+    };
+  });
+}
+
 function carteInsolite(f) {
   let corps = '';
   if (f.p !== null) {
@@ -352,7 +415,8 @@ function carteInsolite(f) {
   return `<div class="carte"><h2>${f.numero} · ${f.titre}</h2><p class="discret">${f.fenetre} — ${cas(f)}</p>${corps}` +
     (f.complement ? `<p class="constat">${f.complement}</p>` : '') +
     `<p class="transparence statut-${f.statut}">${f.lecture}</p>` +
-    `<details><summary>Détail</summary><p>${f.explication}</p>${f.non_teste ? `<p>${f.non_teste}</p>` : ''}` +
+    (f.detail ? tableauDetail(f.detail) : '') +
+    `<details><summary>Comprendre cette fiche</summary><p>${f.explication}</p>${f.non_teste ? `<p>${f.non_teste}</p>` : ''}` +
     (f.p !== null ? `<p>${nombre(f.p * 100, f.p < 0.1 ? 1 : 0)} faux historiques sur 100 s'écartent au moins autant de l'attendu.</p>` : '') +
     `${periodes}${exemples}</details></div>`;
 }
@@ -387,7 +451,8 @@ function htmlRejeu() {
     '<li>Aucun style ne fait gagner plus souvent, et tous perdent de l\'argent en moyenne.</li>' +
     '<li>Seul le partage est réel : des numéros peu joués font toucher davantage <i>quand</i> on gagne.</li>' +
     `<li>D'après la règle du jeu, une grille quelconque gagne quelque chose ${nombre(R.part_gagnantes_theorique, 1)} fois sur 100, presque toujours un petit rang.</li></ul>` +
-    ordre.map((c) => `<p class="transparence"><b>${noms[c]}.</b> ${phraseProfil(c, R)}</p>`).join('') + '</div>' +
+    '</div><div class="carte"><h2>Les cinq styles, un par un</h2>' +
+    ordre.map((c) => `<p class="definition"><b>${noms[c]} :</b> ${definitionStyle(c, reglages)}</p><p class="transparence"><b>Ce que le laboratoire a mesuré.</b> ${phraseProfil(c, R)}</p>`).join('') + '</div>' +
     '<div class="carte"><h2>Le laboratoire complet</h2><p>Tous les tests, période par période : fréquences, retards, sommes, paires, ordre de sortie, mardi contre vendredi, partage des gains.</p>' +
     '<p><a href="laboratoire.html">Ouvrir le laboratoire</a></p>' +
     `<p class="discret">Données : ${nombre(D.tirages.length)} tirages, du ${dateFr(D.tirages[0][0])} au ${dateFr(dernierTirage)}.</p></div>`;
@@ -398,6 +463,9 @@ function vueMesures(racine) {
   racine.innerHTML = '<div class="puces sous-menu">' + sous.map(([cle, nom]) => `<button class="puce${cle === etat.sousVue ? ' actif' : ''}" data-sous="${cle}">${nom}</button>`).join('') + '</div>' +
     (ENQUETES[etat.sousVue] ? htmlEnquete(etat.sousVue) : htmlRejeu());
   racine.querySelectorAll('[data-sous]').forEach((b) => { b.onclick = () => { etat.sousVue = b.dataset.sous; afficher(); }; });
+  rendreTriables(racine);
+  // pour les captures d'écran de contrôle : « #mesures-boulier-ouvert » déplie les tableaux détaillés
+  if (location.hash.endsWith('-ouvert')) racine.querySelectorAll('details.detail').forEach((d) => { d.open = true; });
 }
 
 // ---------- Réglages ----------

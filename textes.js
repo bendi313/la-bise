@@ -9,6 +9,21 @@ export const signe = (x, dec = 1) => (x > 0 ? '+' : '') + nombre(x, dec);
 
 export const dateFr = (iso) => iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4);
 
+// Ce que fait chaque style, en clair, avec un exemple. `r` : les réglages en cours (fenêtre du « chaud », plage de somme).
+export function definitionStyle(cle, r) {
+  return {
+    hasard: 'Des grilles tirées entièrement au hasard, sans aucun critère. C\'est le point de comparaison de tous les autres styles.',
+    chaud: `Choisit de préférence les numéros et les étoiles sortis le plus souvent sur les ${r.fenetreChaud} derniers tirages. ` +
+      `Exemple : un numéro sorti 4 fois en ${r.fenetreChaud} tirages est « sur la vague » ; un numéro sorti 0 fois ne l'est pas.`,
+    froid: 'Choisit de préférence les numéros et les étoiles qui ne sont plus sortis depuis le plus longtemps. ' +
+      'Exemple : un numéro absent depuis 40 tirages passe avant un numéro sorti la semaine dernière.',
+    harmonique: `Garde les grilles « équilibrées » : la somme des 5 numéros entre ${r.sommeMin} et ${r.sommeMax}, et 2 ou 3 numéros pairs. ` +
+      'Exemple : 7, 19, 24, 33, 46 (somme 129, deux pairs) est gardée ; 1, 2, 3, 4, 5 (somme 15) ne l\'est pas.',
+    antiFoule: 'Évite les numéros que beaucoup de gens jouent — surtout ceux de 1 à 31, qui servent de dates de naissance, et le 7 — ' +
+      'pour partager avec moins de monde en cas de gain. Exemple : 32, 38, 41, 46, 49 plutôt que 3, 7, 11, 19, 25.',
+  }[cle];
+}
+
 // rejeu : { nb_tirages, profils: { hasard: {...}, chaud: {...}, … } }, produit par eurom/rejeu.py
 export function phraseProfil(cle, rejeu) {
   const q = rejeu.profils[cle], temoin = rejeu.profils.hasard;
