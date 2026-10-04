@@ -307,6 +307,27 @@ function barres(cases, libelles) {
     '<div class="echelle"></div><div class="echelle-textes"><span>moins que prévu</span><span>pointillé : les 10 % attendus</span><span>plus que prévu</span></div>';
 }
 
+// La carte d'identité du numéro : chaque mesure avec sa jauge, l'attendu, la fourchette du hasard et un OUI / NON.
+function htmlIdentite(n) {
+  const N = D.numeros, i = n - 1;
+  const lignes = N.mesures.filter((m) => m.valeurs[i] !== null).map((m) => {
+    const f = { obs: m.valeurs[i], att: m.attendu[i], bas: m.bas[i], haut: m.haut[i] }, j = jauge(f);
+    const reponse = m.hors[i] ? `<span class="reponse oui">OUI ${m.hors[i] > 0 ? '▲ au-dessus' : '▼ en dessous'}</span>` : '<span class="reponse non">NON</span>';
+    return `<div class="enquete${m.hors[i] ? ' marquee' : ''}"><div class="entete"><span>${m.nom}</span>${reponse}</div>` +
+      `<div class="mesure"><span class="discret">${m.precisions[i] ?? ''}</span><b>${nombre(f.obs, m.dec)}</b></div>` +
+      `<div class="piste"><i class="hasard" style="left:${j.gauche}%;width:${j.largeur}%"></i><i class="attendu" style="left:${j.attendu}%"></i><i class="observe" style="left:${j.observe}%"></i></div>` +
+      `<div class="echelle-textes"><span>attendu ${nombre(f.att, Math.max(1, m.dec))}</span><span>le hasard : de ${nombre(f.bas, m.dec)} à ${nombre(f.haut, m.dec)}</span></div>` +
+      `<p class="discret">${m.aide}</p></div>`;
+  });
+  const oui = N.mesures.filter((m) => m.hors[i]).length;
+  return `<h3>Carte d'identité : ${lignes.length} mesures</h3><p class="discret">Pour chaque mesure : ce numéro sort-il de ce que le hasard donne à un numéro pris seul, 19 fois sur 20 ? ` +
+    `Réponse pour le ${n} : <b>OUI pour ${oui} mesure${oui > 1 ? 's' : ''} sur ${lignes.length}</b> ; par pur hasard on attend environ ${nombre(0.05 * lignes.length, 1)} « oui » par numéro. ` +
+    `Sur les ${nombre(N.nb_cases)} cases des 50 numéros, ${nombre(N.nb_hors)} sont des « oui », pour ${nombre(N.attendues_par_hasard)} attendus. ` +
+    'Plusieurs mesures racontent la même chose sous des angles différents (un numéro peu sorti l\'est aussi le mardi, depuis 2016, etc.) : ' +
+    'plusieurs « oui » sur un même numéro ne sont donc pas autant de preuves séparées. Aucun ne dit quoi jouer.</p>' +
+    `<details class="detail"${oui ? ' open' : ''}><summary>Voir les ${lignes.length} mesures</summary>${lignes.join('')}</details>`;
+}
+
 function htmlEnquetes(n) {
   const enquetes = enquetesDuNumero(n, D), b = bilanEnquetes(enquetes);
   const noms = { insolites: 'Dates insolites', boulier: 'Anomalies du boulier' };
@@ -348,7 +369,7 @@ function ficheHtml(n) {
     '<p class="discret">Le hasard donne 10 % partout ; de petits écarts sont normaux.</p>' +
     `<h3>Sorti le plus souvent avec</h3><div class="boules">${f.compagnons.map(([m, c]) => boule(m, chaleurs(etat.mode)[0][m - 1]) + `<span class="discret">${c} fois</span>`).join('')}</div>` +
     `<p class="discret">Un compagnon quelconque est attendu ${nombre(f.compagnonAttendu, 1)} fois. Parmi 49 compagnons, il y en a toujours quelques-uns en tête.</p>` +
-    htmlEnquetes(n) +
+    htmlIdentite(n) + htmlEnquetes(n) +
     '<p class="transparence">Cette fiche décrit le passé. Le laboratoire a vérifié qu\'un numéro chaud ou en retard n\'a pas plus de chances de sortir au tirage suivant.</p></div>';
 }
 
