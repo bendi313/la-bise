@@ -29,6 +29,8 @@ export const DEFAUTS = {
   fetiches: [],          // jusqu'à 3 numéros fétiches
   dosage: 'modere',
   affichage: 'moderne',  // ou 'ticket'
+  lois: { gauss: false, corde: false, entropie: false },   // « Tirage Labo » : lois du labo appliquées à la génération
+  loisPerso: [],         // identifiants des mesures de Mon Labo utilisées comme lois
   theme: 'matrix',
   // null = valeur du thème. Couleurs : fond, cartes, textes, accents, boules ; plus la force de la lueur.
   perso: { fond: null, surface: null, texte: null, texte2: null, accent: null, accent2: null, accent3: null, froid: null, chaud: null, lueur: null },
@@ -73,6 +75,8 @@ export function valider(r = {}) {
     fetiches: validerFetiches(r.fetiches),
     dosage: DOSAGES[r.dosage] ? r.dosage : DEFAUTS.dosage,
     affichage: AFFICHAGES.includes(r.affichage) ? r.affichage : DEFAUTS.affichage,
+    lois: Object.fromEntries(Object.keys(DEFAUTS.lois).map((cle) => [cle, r.lois?.[cle] === true])),
+    loisPerso: (Array.isArray(r.loisPerso) ? r.loisPerso : []).filter((x) => typeof x === 'string').slice(0, 5),
     theme: typeof r.theme === 'string' ? r.theme : DEFAUTS.theme,
     perso, seuils,
     mentionsAcceptees: r.mentionsAcceptees === true,
@@ -81,6 +85,8 @@ export function valider(r = {}) {
 
 // Le profil tout prêt qui correspond aux poids, ou « mixte » si l'utilisateur a fait son propre mélange.
 export function profilActif(reglages) {
+  // dès qu'une loi du labo est cochée, ce n'est plus un style tout prêt
+  if (Object.values(reglages.lois || {}).some(Boolean) || (reglages.loisPerso || []).length) return 'mixte';
   const trouve = PROFILS.find((p) => Object.keys(p.poids).every((c) => p.poids[c] === reglages.poids[c]));
   return trouve ? trouve.cle : 'mixte';
 }

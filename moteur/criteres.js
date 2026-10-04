@@ -2,6 +2,9 @@
 // Aucune note ne mesure une chance de gagner : toutes les grilles ont la même.
 
 import { DOSAGES } from './reglages.js';
+import { respecte } from './monlabo.js';
+
+const POIDS_LOI = 100;
 
 // Place de chaque valeur parmi les autres, de 0 (la plus petite) à 1 (la plus grande) ; les ex æquo partagent.
 export function centiles(valeurs) {
@@ -29,13 +32,44 @@ export function statistiques(tirages, fenetre, nbEtoiles = 12) {
   });
   s.centChaudN = centiles(s.chaudN); s.centChaudE = centiles(s.chaudE);
   s.centFroidN = centiles(s.retardN); s.centFroidE = centiles(s.retardE);
+  // « corde à nœuds » : tension d'un numéro = moyenne de ses 3 derniers écarts entre deux sorties, rapportée à 10 (1 = normale)
+  const sorties = Array.from({ length: 50 }, () => []);
+  tirages.forEach((t, i) => t.slice(1, 6).forEach((n) => sorties[n - 1].push(i)));
+  s.tensionN = sorties.map((l) => {
+    const ecarts = l.slice(-4).map((x, i, a) => (i ? x - a[i - 1] : null)).filter((x) => x !== null);
+    return ecarts.length ? ecarts.reduce((a, b) => a + b, 0) / ecarts.length / 10 : 1;
+  });
+  s.centTensionN = centiles(s.tensionN);
   return s;
 }
 
+// Les lois du labo utilisables pour générer des grilles. Comme les styles, aucune ne change la chance de gagner.
+const ENTROPIE_MAX = Math.log2(5);
+export const LOIS = {
+  gauss: {
+    nom: 'Courbe de Gauss', texte: 'Garde les grilles dont la somme est proche du centre de la cloche (127,5).',
+    note: (g) => 1 - Math.min(1, Math.abs(g.numeros.reduce((a, b) => a + b, 0) - 127.5) / 60),
+  },
+  corde: {
+    nom: 'Corde à nœuds', texte: 'Préfère les numéros dont la corde est « tendue » : leurs dernières sorties ont été espacées.',
+    note: (g, ctx) => g.numeros.reduce((a, n) => a + ctx.stats.centTensionN[n - 1], 0) / 5,
+  },
+  entropie: {
+    nom: 'Désordre maximal', texte: 'Préfère les grilles dispersées : idéalement un numéro par dizaine.',
+    note: (g) => {
+      const parDizaine = [0, 0, 0, 0, 0];
+      g.numeros.forEach((n) => { parDizaine[Math.floor((n - 1) / 10)]++; });
+      return Math.abs(-parDizaine.filter(Boolean).reduce((a, k) => a + (k / 5) * Math.log2(k / 5), 0)) / ENTROPIE_MAX;
+    },
+  },
+};
+
 // Tout ce dont les critères ont besoin : statistiques des tirages et popularité des numéros (mesurée par le laboratoire).
-export function contexte(donnees, reglages) {
+// `loisPerso` : les lois tirées des mesures enregistrées dans Mon Labo et cochées par l'utilisateur ({ id, loi }).
+export function contexte(donnees, reglages, loisPerso = []) {
   const sansTrou = (liste) => liste.map((x) => x ?? 0);
   return {
+    loisPerso,
     stats: statistiques(donnees.tirages, reglages.fenetreChaud, donnees.populaire.etoiles.length),
     centPopN: centiles(sansTrou(donnees.populaire.numeros)),
     centPopE: centiles(sansTrou(donnees.populaire.etoiles)),
@@ -78,6 +112,18 @@ export function noter(grille, ctx, reglages) {
     const poids = reglages.poids[cle] || 0;
     somme += poids * notes[cle];
     poidsTotal += poids;
+  });
+  // les lois du labo cochées comptent chacune comme un style à plein poids
+  notes.lois = {};
+  Object.keys(LOIS).filter((cle) => reglages.lois?.[cle]).forEach((cle) => {
+    notes.lois[cle] = LOIS[cle].note(grille, ctx);
+    somme += POIDS_LOI * notes.lois[cle];
+    poidsTotal += POIDS_LOI;
+  });
+  (ctx.loisPerso || []).forEach(({ id, loi }) => {
+    notes.lois[id] = respecte(loi, grille);
+    somme += POIDS_LOI * notes.lois[id];
+    poidsTotal += POIDS_LOI;
   });
   // note du style seul : c'est elle qui classe les candidates, pour que le dosage des fétiches reste celui demandé
   const style = poidsTotal ? (100 * somme) / poidsTotal : null;

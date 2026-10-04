@@ -1,6 +1,7 @@
 // L'écran de La Bise. Les calculs sont dans moteur/, labo.js, themes.js et textes.js (tous testés avec Node).
 
-import { contexte, NOMS_CRITERES } from './moteur/criteres.js';
+import { contexte, NOMS_CRITERES, LOIS } from './moteur/criteres.js';
+import * as monLabo from './moteur/monlabo.js';
 import { PROFILS, NOMBRES_DE_GRILLES, DOSAGES, FETICHES_MAX, charger, sauver, valider, validerFetiches, profilActif } from './moteur/reglages.js';
 import { generer } from './moteur/generateur.js';
 import { versCSV, versJSON, versTicket, telecharger } from './moteur/export.js';
@@ -21,7 +22,8 @@ const MODES = {
   foule: { nom: 'Joué par la foule', froid: 'Très peu joué', chaud: 'Très joué' },
 };
 // Les deux familles d'enquêtes, chacune avec sa couleur (variables CSS du thème).
-const FAMILLES = { insolites: { nom: 'Dates insolites', classe: 'famille-dates' }, boulier: { nom: 'Anomalies du boulier', classe: 'famille-boulier' } };
+const FAMILLES = { insolites: { nom: 'Dates insolites', classe: 'famille-dates' }, boulier: { nom: 'Anomalies du boulier', classe: 'famille-boulier' },
+  experiences: { nom: 'Expériences du labo', classe: 'famille-experiences' } };
 const AIDE_JAUGE = 'La zone claire est ce que le hasard normal donne 19 fois sur 20. Le trait fin est la moyenne du hasard. Le repère épais est ce qui a été observé.';
 // La teinte d'une boule, après passage par les seuils réglés par l'utilisateur.
 const teinte = (t) => couleurThermique(t, pal, reglages.seuils);
@@ -31,7 +33,9 @@ let stockage = localStorage;
 let reglages = charger(stockage);
 let decks = deckOutils.charger(stockage);
 let carnet = carnetOutils.charger(stockage);
-const etat = { vue: 'grilles', grilles: [], mode: 'chaud', choisi: null, sousVue: 'rejeu', rapide: false, rejeu: null, message: '' };
+let labo = monLabo.charger(stockage);
+const etat = { vue: 'grilles', grilles: [], mode: 'chaud', choisi: null, sousVue: 'rejeu', rapide: false, rejeu: null, message: '',
+  labo: { fil: [], spec: null, question: '', dernier: null, menus: false } };
 
 const aujourdhui = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const lireListe = (texte) => (String(texte).match(/\d+/g) || []).map(Number);
@@ -40,7 +44,7 @@ const pluriel = (n, mot) => `${nombre(n)} ${mot}${n > 1 ? 's' : ''}`;
 function memoriser() {
   reglages = valider(reglages);
   sauver(stockage, reglages);
-  ctx = contexte(D, reglages);
+  ctx = construireContexte();
 }
 
 function habiller() {
@@ -70,15 +74,40 @@ function transparence() {
     : '<p class="definition"><b>Mon mélange :</b> les grilles sont notées sur plusieurs styles à la fois, selon les poids des « Réglages fins ».</p>' +
       Object.keys(NOMS_CRITERES).filter((c) => reglages.poids[c] > 0).map((c) => bloc(c, PROFILS.find((p) => p.cle === c).nom)).join('');
   const fetiches = phraseFetiches(reglages.fetiches, D.populaire);
-  return styles + (fetiches ? `<p class="transparence">${fetiches}</p>` : '');
+  const lois = loisCochees().map((l) => `<p class="definition"><b>Loi du labo — ${l.nom} :</b> ${l.texte}</p>` +
+    `<p class="transparence"><b>Ce que le laboratoire a mesuré.</b> ${l.mesure}</p>`).join('');
+  return styles + lois + (fetiches ? `<p class="transparence">${fetiches}</p>` : '');
 }
+
+// Les lois du labo cochées pour la génération : les trois lois intégrées et celles tirées de Mon Labo.
+function loisCochees() {
+  const fiche = (cle) => D.experiences.fiches.find((f) => f.cle === cle);
+  const mesures = {
+    gauss: `Loi appliquée par goût : elle ne change pas la chance de gagner. ${fiche('retour').complement} ${fiche('retour').lecture}`,
+    corde: `Loi appliquée par goût : elle ne change pas la chance de gagner. ${fiche('corde').complement} ${fiche('corde').lecture}`,
+    entropie: `Loi appliquée par goût : elle ne change pas la chance de gagner. Les tirages réels ne sont ni plus ni moins dispersés que le hasard ne le veut. ${fiche('entropie').lecture}`,
+  };
+  return [
+    ...Object.keys(LOIS).filter((cle) => reglages.lois[cle]).map((cle) => ({ cle, nom: LOIS[cle].nom, texte: LOIS[cle].texte, mesure: mesures[cle] })),
+    ...loisPersoActives().map(({ id, loi }) => ({ cle: id, nom: 'Mon Labo', texte: `Garde les grilles où « ${loi.texte} ».`,
+      mesure: 'Loi tirée d\'une de vos mesures : elle décrit une forme de grille, elle ne change pas la chance de gagner.' })),
+  ];
+}
+
+// Les mesures de Mon Labo cochées comme lois, sous la forme attendue par le moteur.
+function loisPersoActives() {
+  return labo.mesures.filter((m) => reglages.loisPerso.includes(m.id)).map((m) => ({ id: m.id, loi: monLabo.loiDeGrille(m.spec) })).filter((x) => x.loi);
+}
+
+const construireContexte = () => contexte(D, reglages, loisPersoActives());
 
 function carteGrille(g, i) {
   const respect = g.respect === null
     ? '<div class="mesure"><span>Respect de vos réglages</span><b>hasard pur</b></div>'
     : `<div class="mesure"><span>Respect de vos réglages</span><b>${nombre(g.respect)} %</b></div><div class="jauge"><i style="width:${g.respect}%"></i></div>`;
   const detail = Object.keys(NOMS_CRITERES).map((c) => `<tr><td>${NOMS_CRITERES[c]}</td><td>${nombre(100 * g.notes[c])} %</td><td>poids ${reglages.poids[c]}</td></tr>`).join('') +
-    (g.notes.fetiches === null ? '' : `<tr><td>Fétiches</td><td>${nombre(100 * g.notes.fetiches)} %</td><td>poids ${DOSAGES[reglages.dosage].poids}</td></tr>`);
+    (g.notes.fetiches === null ? '' : `<tr><td>Fétiches</td><td>${nombre(100 * g.notes.fetiches)} %</td><td>poids ${DOSAGES[reglages.dosage].poids}</td></tr>`) +
+    loisCochees().map((l) => `<tr><td>Loi : ${l.nom}</td><td>${nombre(100 * (g.notes.lois?.[l.cle] ?? 0))} %</td><td>poids 100</td></tr>`).join('');
   return `<div class="carte grille" style="animation-delay:${Math.min(i, 12) * 60}ms">${boulesGrille(g)}${respect}` +
     `<div class="mesure"><span>Effet de partage estimé</span><b>${signe(g.partage.gain, 1)} % de gain si elle sort</b></div>` +
     `<details><summary>Détail</summary><table>${detail}</table>` +
@@ -127,6 +156,14 @@ function vueGrilles(racine) {
     `<div class="ligne"><label>Dosage <select id="r-dosage">${Object.entries(DOSAGES).map(([cle, d]) => `<option value="${cle}"${cle === reglages.dosage ? ' selected' : ''}>${d.nom} — ${d.texte}</option>`).join('')}</select></label></div>` +
     '</details>' +
 
+    `<details id="d-lois"><summary>Tirage Labo / Expérimental${loisCochees().length ? ` — ${loisCochees().length} loi${loisCochees().length > 1 ? 's' : ''}` : ''}</summary>` +
+    '<p class="discret">Cochez les lois du labo à appliquer aux grilles. Chacune compte comme un style à plein poids. Aucune ne change la chance de gagner.</p>' +
+    Object.entries(LOIS).map(([cle, l]) => `<label class="case"><input type="checkbox" data-loi="${cle}"${reglages.lois[cle] ? ' checked' : ''}><span><b>${l.nom}.</b> ${l.texte}</span></label>`).join('') +
+    labo.mesures.filter((m) => monLabo.loiDeGrille(m.spec)).map((m) => `<label class="case"><input type="checkbox" data-loi-perso="${encodeURIComponent(m.id)}"${reglages.loisPerso.includes(m.id) ? ' checked' : ''}>` +
+      `<span><b>Mon Labo.</b> Grilles où « ${monLabo.loiDeGrille(m.spec).texte} »</span></label>`).join('') +
+    (labo.mesures.length ? '' : '<p class="discret">Les mesures enregistrées dans « Mon Labo » (onglet Mesures) apparaîtront ici.</p>') +
+    '</details>' +
+
     `<div class="ligne"><label>Nombre de grilles <select id="r-nombre">${NOMBRES_DE_GRILLES.map((n) => `<option${n === reglages.nombre ? ' selected' : ''}>${n}</option>`).join('')}</select></label>` +
     `<label>Affichage <select id="r-affichage"><option value="moderne"${reglages.affichage === 'moderne' ? ' selected' : ''}>Moderne</option><option value="ticket"${reglages.affichage === 'ticket' ? ' selected' : ''}>Ticket rétro</option></select></label></div>` +
     '<button class="bouton principal" id="generer">GÉNÉRER</button></div><div id="resultats"></div>';
@@ -142,6 +179,14 @@ function vueGrilles(racine) {
   const champ = (id, cle, lireValeur = (v) => Number(v)) => { $(id).onchange = () => { reglages[cle] = lireValeur($(id).value); memoriser(); garder('d-fins'); }; };
   champ('r-fenetre', 'fenetreChaud'); champ('r-min', 'sommeMin'); champ('r-max', 'sommeMax');
   champ('r-fetiches', 'fetiches', (v) => validerFetiches(lireListe(v))); champ('r-dosage', 'dosage', (v) => v);
+  racine.querySelectorAll('[data-loi]').forEach((c) => { c.onchange = () => { reglages.lois[c.dataset.loi] = c.checked; memoriser(); garder('d-lois'); }; });
+  racine.querySelectorAll('[data-loi-perso]').forEach((c) => {
+    c.onchange = () => {
+      const id = decodeURIComponent(c.dataset.loiPerso);
+      reglages.loisPerso = c.checked ? [...reglages.loisPerso, id] : reglages.loisPerso.filter((x) => x !== id);
+      memoriser(); garder('d-lois');
+    };
+  });
   $('r-nombre').onchange = () => { reglages.nombre = Number($('r-nombre').value); memoriser(); };
   $('r-affichage').onchange = () => { reglages.affichage = $('r-affichage').value; memoriser(); resultats(); };
   $('generer').onclick = lancer;
@@ -354,7 +399,7 @@ function htmlEnquetes(n) {
   return `<h3>Ce numéro dans les enquêtes</h3><p class="discret">Pour chaque enquête, la question est la même : ce numéro sort-il de ce que le hasard donne d'ordinaire ? ` +
     `Réponse pour le ${n} : <b>OUI dans ${b.inhabituelles} enquête${b.inhabituelles > 1 ? 's' : ''} sur ${b.jugees}</b>. ` +
     `Par pur hasard, on attend environ ${nombre(b.attendues, 1)} « oui » par numéro : un ou deux « oui » n'ont donc rien d'étonnant, et aucun ne dit quoi jouer.</p>` +
-    ['insolites', 'boulier'].map((bloc) => `<details class="detail famille ${FAMILLES[bloc].classe}"${enquetes.some((e) => e.bloc === bloc && e.inhabituel) ? ' open' : ''}>` +
+    ['insolites', 'boulier', 'experiences'].map((bloc) => `<details class="detail famille ${FAMILLES[bloc].classe}"${enquetes.some((e) => e.bloc === bloc && e.inhabituel) ? ' open' : ''}>` +
       `<summary><span class="etiquette-famille">${FAMILLES[bloc].nom}</span> ${enquetes.filter((e) => e.bloc === bloc).length} enquêtes</summary>` +
       enquetes.filter((e) => e.bloc === bloc).map(carte).join('') + '</details>').join('');
 }
@@ -495,6 +540,7 @@ function carteInsolite(f) {
 
 const ENQUETES = {
   insolites: { nom: 'Dates insolites', accroche: 'Quinze curiosités du calendrier, testées avec le même sérieux que le reste. La machine ne connaît pas la date : le résultat attendu est « rien ».' },
+  experiences: { nom: 'Expériences du labo', accroche: 'Trois expériences : la cloche de Gauss, la corde à nœuds et l\'indice de singularité. Chacune cherche une « force » qui ramènerait les tirages vers une moyenne ou un équilibre. Un tirage sans mémoire n\'en a aucune. Ces lois peuvent aussi servir à générer des grilles (onglet Grilles, « Tirage Labo / Expérimental »).' },
   boulier: { nom: 'Anomalies du boulier', accroche: 'Quatorze pistes d\'enquête sur les numéros. Beaucoup cherchent « le cas le plus extrême » : parmi 1 225 paires ou 50 numéros, il y en a toujours un. Chaque record est donc comparé à celui que le hasard produit à lui seul.' },
 };
 
@@ -531,13 +577,160 @@ function htmlRejeu() {
 }
 
 function vueMesures(racine) {
-  const sous = [['rejeu', 'Rejeu des styles'], ['insolites', 'Dates insolites'], ['boulier', 'Boulier']];
+  const sous = [['rejeu', 'Rejeu des styles'], ['insolites', 'Dates insolites'], ['boulier', 'Boulier'], ['experiences', 'Expériences'], ['monlabo', 'Mon Labo']];
   racine.innerHTML = '<div class="puces sous-menu">' + sous.map(([cle, nom]) => `<button class="puce${cle === etat.sousVue ? ' actif' : ''}" data-sous="${cle}">${nom}</button>`).join('') + '</div>' +
-    (ENQUETES[etat.sousVue] ? htmlEnquete(etat.sousVue) : htmlRejeu());
+    (etat.sousVue === 'monlabo' ? '<div id="zone-monlabo"></div>' : ENQUETES[etat.sousVue] ? htmlEnquete(etat.sousVue) : htmlRejeu());
+  if (etat.sousVue === 'monlabo') vueMonLabo($('zone-monlabo'));
   racine.querySelectorAll('[data-sous]').forEach((b) => { b.onclick = () => { etat.sousVue = b.dataset.sous; afficher(); }; });
   rendreTriables(racine);
   // pour les captures d'écran de contrôle : « #mesures-boulier-ouvert » déplie les tableaux détaillés
   if (location.hash.endsWith('-ouvert')) racine.querySelectorAll('details.detail').forEach((d) => { d.open = true; });
+}
+
+// ---------- Mon Labo : poser sa propre question ----------
+
+const EXEMPLES_LABO = [
+  'Les numéros pairs sortent-ils plus après 4 impairs ?',
+  'La somme est-elle plus haute le mardi ?',
+  'Le 7 sort-il plus après 2 tirages de suite avec au moins 3 pairs ?',
+  'Y a-t-il plus de suites quand la somme dépasse 150 ?',
+];
+
+// Le fil de la conversation : { de: 'vous' | 'labo', html }. Le test en attente de validation est dans etat.labo.spec.
+function dire(de, html) { etat.labo.fil.push({ de, html }); }
+
+function optionsProprietes(choisie) {
+  return Object.entries(monLabo.PROPRIETES).map(([cle, p]) => `<option value="${cle}"${cle === choisie ? ' selected' : ''}>${p.unite}</option>`).join('');
+}
+
+// Les menus : la même question, sans phrase. Ils servent à corriger ce que l'analyseur a compris, ou à s'en passer.
+function htmlMenus(spec) {
+  const c = spec?.condition, m = spec?.cible ?? { prop: 'pairs', op: null, val: null };
+  const ops = (choisi, avecMoyenne) => (avecMoyenne ? `<option value=""${!choisi ? ' selected' : ''}>la moyenne</option>` : '') +
+    Object.entries(monLabo.OPERATEURS).map(([op, nom]) => `<option value="${op}"${op === choisi ? ' selected' : ''}>${avecMoyenne ? 'la part des tirages avec ' : ''}${nom}</option>`).join('');
+  return '<div class="menus-labo"><h3>La situation de départ</h3>' +
+    `<div class="ligne"><select id="l-avec"><option value="non"${c ? '' : ' selected'}>Aucune : tous les tirages</option><option value="oui"${c ? ' selected' : ''}>Un tirage où…</option></select></div>` +
+    `<div class="ligne" id="l-condition"${c ? '' : ' hidden'}><select id="l-c-prop">${optionsProprietes(c?.prop ?? 'impairs')}</select>` +
+    `<label>n° <input type="number" id="l-c-param" min="1" max="50" value="${c?.param ?? 7}"></label>` +
+    `<select id="l-c-op">${ops(c?.op ?? '>=', false)}</select><input type="number" id="l-c-val" min="0" max="240" value="${c?.val ?? 4}">` +
+    `<label>pendant <input type="number" id="l-c-serie" min="1" max="10" value="${c?.serie ?? 1}"> tirage(s) de suite</label></div>` +
+    `<div class="ligne" id="l-ou"${c ? '' : ' hidden'}><select id="l-decalage"><option value="1"${spec?.decalage === 0 ? '' : ' selected'}>Je regarde le tirage qui suit</option><option value="0"${spec?.decalage === 0 ? ' selected' : ''}>Je regarde ce même tirage</option></select></div>` +
+    '<h3>Ce que je mesure</h3>' +
+    `<div class="ligne"><select id="l-m-prop">${optionsProprietes(m.prop)}</select><label>n° <input type="number" id="l-m-param" min="1" max="50" value="${m.param ?? 7}"></label></div>` +
+    `<div class="ligne"><select id="l-m-op">${ops(m.op, true)}</select><input type="number" id="l-m-val" min="0" max="240" value="${m.val ?? 3}"></div>` +
+    `<div class="ligne"><label>Jour <select id="l-jour"><option value="">mardi et vendredi</option><option value="mardi"${spec?.jour === 'mardi' ? ' selected' : ''}>mardi seulement</option><option value="vendredi"${spec?.jour === 'vendredi' ? ' selected' : ''}>vendredi seulement</option></select></label></div>` +
+    '<div class="ligne"><button class="bouton" id="l-menus-ok">Utiliser ces menus</button></div></div>';
+}
+
+function lireMenus() {
+  const avec = $('l-avec').value === 'oui';
+  return monLabo.valider({
+    decalage: Number($('l-decalage').value), jour: $('l-jour').value || null,
+    condition: avec ? { prop: $('l-c-prop').value, param: Number($('l-c-param').value), op: $('l-c-op').value, val: Number($('l-c-val').value), serie: Number($('l-c-serie').value) } : null,
+    cible: { prop: $('l-m-prop').value, param: Number($('l-m-param').value), op: $('l-m-op').value || null, val: Number($('l-m-val').value) },
+  });
+}
+
+function htmlResultatLabo(r, spec) {
+  const noms = { vide: 'Rien à mesurer', peu: 'Trop peu de cas', inhabituel: 'Écart inhabituel', conforme: 'Conforme au hasard' };
+  let jaugeHtml = '';
+  if (r.p !== null) {
+    const j = jauge(r);
+    jaugeHtml = `<div class="mesure"><span>${r.unite}</span><b>${nombre(r.obs, r.dec)}</b></div>` +
+      `<div class="piste" title="${AIDE_JAUGE}"><i class="hasard" style="left:${j.gauche}%;width:${j.largeur}%"></i><i class="attendu" style="left:${j.attendu}%"></i><i class="observe" style="left:${j.observe}%"></i></div>` +
+      `<div class="echelle-textes"><span>attendu ${nombre(r.att, r.dec)}</span><span>le hasard : de ${nombre(r.bas, r.dec)} à ${nombre(r.haut, r.dec)}</span></div>` +
+      '<table><tr><th>Cas trouvés</th><th>Observé</th><th>Attendu</th><th>Hasard : de … à</th></tr>' +
+      `<tr><td>${nombre(r.cas)}</td><td>${nombre(r.obs, r.dec)}</td><td>${nombre(r.att, r.dec)}</td><td>${nombre(r.bas, r.dec)} à ${nombre(r.haut, r.dec)}</td></tr></table>`;
+  }
+  return `<div class="entete"><b>${noms[r.statut]}</b>${r.p === null || r.statut === 'peu' ? '' : badge(r.statut === 'inhabituel', r.obs > r.att ? '▲ au-dessus' : '▼ en dessous')}</div>` +
+    `${jaugeHtml}<p class="resume">${monLabo.conclure(spec, r, labo.essais)}</p>` +
+    `<p class="discret">${nombre(r.nbSimulations)} faux historiques tirés au hasard ont servi de comparaison. Relancer le test peut changer très légèrement la fourchette.</p>`;
+}
+
+function calculerLabo(spec, question) {
+  labo = { ...labo, essais: labo.essais + 1 };
+  monLabo.sauver(stockage, labo);
+  dire('labo', '<p>Calcul en cours sur les vrais tirages…</p>');
+  etat.labo.spec = null;
+  afficher();
+  // on laisse l'écran s'afficher avant de lancer le calcul, qui prend une à quelques secondes
+  setTimeout(() => {
+    const r = monLabo.tester(spec, D.tirages);
+    etat.labo.fil.pop();
+    etat.labo.dernier = { spec, question, r };
+    dire('labo', htmlResultatLabo(r, spec));
+    afficher();
+  }, 40);
+}
+
+function vueMonLabo(racine) {
+  const L = etat.labo;
+  const bulles = L.fil.map((m) => `<div class="bulle ${m.de}">${m.html}</div>`).join('');
+  const attente = L.spec ? `<div class="bulle labo"><p><b>Voici ce que j'ai compris.</b> ${monLabo.decrire(L.spec, D.tirages.length)}</p>` +
+    '<div class="ligne"><button class="bouton principal" id="l-valider">Valider et calculer</button></div>' +
+    '<div class="ligne"><button class="bouton" id="l-corriger">Corriger avec les menus</button><button class="bouton" id="l-annuler">Annuler</button></div></div>' : '';
+  const dejaGardee = L.dernier && labo.mesures.some((m) => m.id === JSON.stringify(L.dernier.spec));
+  const garder = L.dernier && !L.spec ? `<div class="ligne"><button class="bouton" id="l-garder"${dejaGardee ? ' disabled' : ''}>${dejaGardee ? 'Mesure enregistrée dans mon Labo' : 'Enregistrer cette mesure dans mon Labo'}</button></div>` : '';
+  const gardees = labo.mesures.map((m, i) => `<div class="enquete"><b>${m.question || 'Mesure sans titre'}</b><p class="discret">${monLabo.decrire(m.spec, D.tirages.length)}</p>` +
+    (monLabo.loiDeGrille(m.spec) ? `<p class="discret">Utilisable pour générer des grilles (onglet Grilles, « Tirage Labo / Expérimental ») : grilles où « ${monLabo.loiDeGrille(m.spec).texte} ».</p>` : '') +
+    `<div class="ligne"><button class="bouton" data-relancer="${i}">Relancer sur les tirages à jour</button><button class="bouton" data-oublier="${i}">Supprimer</button></div></div>`).join('');
+
+  racine.innerHTML = '<div class="carte famille famille-monlabo"><h2><span class="etiquette-famille">Mon Labo</span></h2>' +
+    '<p>Posez votre propre question sur les tirages. L\'application vous redit ce qu\'elle a compris, vous validez, puis elle fait le calcul sur les vrais tirages et le compare au hasard.</p>' +
+    '<p class="transparence">Il n\'y a pas d\'intelligence artificielle ici : l\'application reconnaît des mots-clés (pairs, impairs, somme, suites, dizaines, « le numéro 7 », « après », « 3 tirages de suite », mardi…). ' +
+    'Si elle ne comprend pas, les menus font la même chose. Elle ne peut pas inventer un résultat : tout est calculé sur les tirages.' +
+    (labo.essais ? ` Tests lancés jusqu'ici : <b>${labo.essais}</b>. Sur 20 tests d'un hasard parfait, 1 ressort en moyenne par pure chance.` : '') + '</p>' +
+    `<div class="fil">${bulles}${attente}</div>${garder}` +
+    '<div class="ligne"><input id="l-question" maxlength="200" placeholder="Votre question…" value=""><button class="bouton" id="l-envoyer">Envoyer</button></div>' +
+    `<details id="l-exemples"${L.fil.length ? '' : ' open'}><summary>Exemples de questions</summary><div class="puces">${EXEMPLES_LABO.map((e, i) => `<button class="puce" data-exemple="${i}">${e}</button>`).join('')}</div></details>` +
+    `<details id="l-menus"${L.menus ? ' open' : ''}><summary>Poser la question avec des menus</summary>${htmlMenus(L.spec ?? L.dernier?.spec)}</details></div>` +
+    (labo.mesures.length ? `<div class="carte famille famille-monlabo"><h2>Mes mesures enregistrées (${labo.mesures.length})</h2>${gardees}</div>` : '');
+
+  const envoyer = (question) => {
+    if (!question.trim()) return;
+    dire('vous', `<p>${question.replace(/[<>&]/g, '')}</p>`);
+    const compris = monLabo.interpreter(question);
+    L.question = question; L.dernier = null;
+    if (compris.spec) { L.spec = compris.spec; L.menus = false; } else { L.spec = null; L.menus = true; dire('labo', `<p>${compris.erreur}</p>`); }
+    afficher();
+  };
+  $('l-envoyer').onclick = () => envoyer($('l-question').value);
+  $('l-question').onkeydown = (e) => { if (e.key === 'Enter') envoyer($('l-question').value); };
+  racine.querySelectorAll('[data-exemple]').forEach((b) => { b.onclick = () => envoyer(EXEMPLES_LABO[Number(b.dataset.exemple)]); });
+  if ($('l-valider')) $('l-valider').onclick = () => calculerLabo(L.spec, L.question);
+  if ($('l-corriger')) $('l-corriger').onclick = () => { L.menus = true; afficher(); $('l-menus').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  if ($('l-annuler')) $('l-annuler').onclick = () => { L.spec = null; dire('labo', '<p>D\'accord, je ne calcule rien. Reformulez ou utilisez les menus.</p>'); afficher(); };
+  if ($('l-garder')) $('l-garder').onclick = () => { labo = monLabo.enregistrer(labo, L.dernier.question, L.dernier.spec); monLabo.sauver(stockage, labo); afficher(); };
+
+  const propager = () => {
+    const parametre = (id, prop) => { $(id).parentElement.hidden = !monLabo.PROPRIETES[$(prop).value].parametre; };
+    parametre('l-c-param', 'l-c-prop'); parametre('l-m-param', 'l-m-prop');
+    $('l-condition').hidden = $('l-ou').hidden = $('l-avec').value !== 'oui';
+    const present = (prop) => Boolean(monLabo.PROPRIETES[$(prop).value].parametre);
+    $('l-c-op').hidden = $('l-c-val').hidden = present('l-c-prop');
+    $('l-m-op').hidden = present('l-m-prop');
+    $('l-m-val').hidden = present('l-m-prop') || !$('l-m-op').value;
+  };
+  ['l-avec', 'l-c-prop', 'l-m-prop', 'l-m-op'].forEach((id) => { $(id).onchange = propager; });
+  propager();
+  $('l-menus-ok').onclick = () => {
+    // pour « le numéro 7 » ou « l'étoile 3 », la question est toujours : est-il sorti ?
+    const present = (prop) => Boolean(monLabo.PROPRIETES[$(prop).value].parametre);
+    if (present('l-c-prop')) { $('l-c-op').value = '='; $('l-c-val').value = 1; }
+    if (present('l-m-prop')) { $('l-m-op').value = '='; $('l-m-val').value = 1; }
+    const spec = lireMenus();
+    if (!spec) { dire('labo', '<p>Ces menus ne forment pas un test complet. Vérifiez la situation de départ et ce qui est mesuré.</p>'); afficher(); return; }
+    L.question = L.question || 'Question posée avec les menus'; L.spec = spec; L.dernier = null; L.menus = false;
+    afficher(); racine.querySelector('.fil').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  racine.querySelectorAll('[data-relancer]').forEach((b) => { b.onclick = () => { const m = labo.mesures[Number(b.dataset.relancer)]; dire('vous', `<p>${m.question}</p>`); L.question = m.question; calculerLabo(m.spec, m.question); window.scrollTo(0, 0); }; });
+  racine.querySelectorAll('[data-oublier]').forEach((b) => {
+    b.onclick = () => {
+      const m = labo.mesures[Number(b.dataset.oublier)];
+      labo = monLabo.oublier(labo, m.id); monLabo.sauver(stockage, labo);
+      reglages.loisPerso = reglages.loisPerso.filter((x) => x !== m.id); memoriser(); afficher();
+    };
+  });
 }
 
 // ---------- Réglages ----------
@@ -626,24 +819,33 @@ async function demarrer() {
     $('vue').innerHTML = '<div class="carte"><p>Les données n\'ont pas pu être chargées. Vérifiez la connexion, puis rouvrez l\'application.</p></div>';
     return;
   }
-  ctx = contexte(D, reglages);
+  ctx = construireContexte();
   indexDates = carnetOutils.indexParDate(D);
   dernierTirage = D.tirages[D.tirages.length - 1][0];
   $('sous-titre').textContent = `${nombre(D.tirages.length)} tirages analysés · dernier : ${dateFr(dernierTirage)}`;
   const [vue, option] = location.hash.slice(1).split('-');
   if (VUES[vue]) etat.vue = vue;
-  [vue, option].filter((x) => ENQUETES[x]).forEach((x) => { etat.vue = 'mesures'; etat.sousVue = x; });
+  [vue, option].filter((x) => ENQUETES[x] || x === 'monlabo').forEach((x) => { etat.vue = 'mesures'; etat.sousVue = x; });
   if (vue === 'numeros' && Number(option) >= 1 && Number(option) <= 50) etat.choisi = Number(option);
   // « ?rapide » (raccourci de l'icône) ouvre directement le mode rapide et génère
   if (parametres.has('rapide') && reglages.mentionsAcceptees) { etat.vue = 'grilles'; etat.rapide = true; }
   if (apercu !== null && option === 'demo') {
     // démonstration pour les captures d'écran : rien n'est enregistré
-    if (vue === 'grilles') { reglages = valider({ ...reglages, fetiches: [7, 13], dosage: 'modere', affichage: parametres.get('affichage') || 'moderne' }); ctx = contexte(D, reglages); }
+    if (vue === 'grilles') { reglages = valider({ ...reglages, fetiches: [7, 13], dosage: 'modere', affichage: parametres.get('affichage') || 'moderne' }); ctx = construireContexte(); }
     if (vue === 'carnet') {
       const exemple = D.tirages[D.tirages.length - 1];
       carnet = [carnetOutils.preparer([exemple[1], exemple[2], 30, 40, 50], [exemple[6], 12], exemple[0]), carnetOutils.preparer([3, 17, 28, 41, 49], [2, 11], carnetOutils.prochainTirage(aujourdhui()))].filter((e) => typeof e !== 'string');
       etat.rejeu = { grille: { numeros: [3, 17, 28, 41, 49], etoiles: [2, 11] }, resultat: rejouer({ numeros: [3, 17, 28, 41, 49], etoiles: [2, 11] }, D) };
     }
+  }
+  if (apercu !== null && location.hash.endsWith('monlabo-demo')) {
+    // démonstration pour les captures d'écran : la question d'exemple, déjà calculée (rien n'est enregistré)
+    const question = EXEMPLES_LABO[0], spec = monLabo.interpreter(question).spec, r = monLabo.tester(spec, D.tirages);
+    dire('vous', `<p>${question}</p>`);
+    dire('labo', `<p><b>Voici ce que j'ai compris.</b> ${monLabo.decrire(spec, D.tirages.length)}</p>`);
+    labo = { ...labo, essais: 1 };
+    etat.labo.dernier = { spec, question, r };
+    dire('labo', htmlResultatLabo(r, spec));
   }
   afficher();
   if ((etat.rapide || (apercu !== null && vue === 'grilles' && option === 'demo'))) lancer();

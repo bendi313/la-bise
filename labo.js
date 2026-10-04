@@ -45,7 +45,8 @@ export function ficheNumero(numero, tirages) {
   };
 }
 
-const fr = (x, dec = 0) => (x === null || x === undefined ? '—' : Number(x).toLocaleString('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec }));
+const fr = (x, dec = 0) => (x === null || x === undefined ? '—'
+  : (Math.abs(x) < 0.5 * 10 ** -dec ? 0 : Number(x)).toLocaleString('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec }));
 const fois = (k) => `${fr(k)} fois`;
 const minuscule = (s) => s[0].toLowerCase() + s.slice(1);
 
@@ -76,6 +77,8 @@ export function phraseEnquete(n, cle, l, c) {
       `soit un écart de ${l[5] > 0 ? '+' : ''}${fr(l[5], 1)} point${Math.abs(l[5]) >= 2 ? 's' : ''} (le hasard donne 10 % aux deux époques ; pour l'écart, ${hasard(' points', 1)}).`,
     clandestin: () => `Sur ses ${fr(l[1])} sorties, le numéro ${n} est sorti ${fois(l[3])} avec le ${l[2]}, son compagnon le plus fréquent ` +
       `(soit ${fr(l[4], 1)} % ; un compagnon quelconque l'accompagne environ 8 fois sur 100, et pour le plus fréquent ${hasard(' %', 1)}).`,
+    corde: () => `La corde du numéro ${n} est ${String(l[2]).split(' :')[0]} : ses 3 derniers écarts entre deux sorties font en moyenne ${fr(l[1] * 10, 1)} tirages, ` +
+      `soit une tension de ${fr(l[1], 2)} (10 tirages d'écart donnent une tension de 1 ; ${hasard('', 2)}). Une corde tendue ou détendue ne dit rien de la prochaine sortie.`,
     saisons: () => {
       const noms = ['hiver', 'printemps', 'été', 'automne'], parts = l.slice(1, 5), meilleure = parts.indexOf(Math.max(...parts));
       return `Le numéro ${n} est sorti dans ${fr(l[1], 1)} % des tirages d'hiver, ${fr(l[2], 1)} % de ceux du printemps, ${fr(l[3], 1)} % de ceux d'été et ${fr(l[4], 1)} % de ceux d'automne ; ` +
@@ -132,7 +135,7 @@ const COLONNE_SUIVI = 'Suivi par la fiche';
 // `inhabituel` : le numéro sort-il de la fourchette du hasard pour cette enquête ? (null quand la question ne se pose pas)
 export function enquetesDuNumero(n, donnees) {
   const liste = [];
-  ['insolites', 'boulier'].forEach((bloc) => (donnees[bloc]?.fiches || []).forEach((f) => {
+  ['insolites', 'boulier', 'experiences'].forEach((bloc) => (donnees[bloc]?.fiches || []).forEach((f) => {
     const d = f.detail;
     if (!d) return;
     const base = { bloc, numero: f.numero, cle: f.cle, titre: f.titre, definition: f.definition, fenetre: f.fenetre };

@@ -2,6 +2,7 @@
 
 export function nombre(x, dec = 0) {
   if (x === null || x === undefined || Number.isNaN(x)) return '—';
+  if (Math.abs(x) < 0.5 * 10 ** -dec) x = 0;          // évite d'afficher « -0,00 »
   return x.toLocaleString('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 }
 
