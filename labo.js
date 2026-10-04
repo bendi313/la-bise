@@ -181,4 +181,89 @@ export function jauge(fiche) {
   return { gauche: place(fiche.bas), largeur: place(fiche.haut) - place(fiche.bas), attendu: place(fiche.att), observe: place(fiche.obs) };
 }
 
-export const pourcent =(c) => (c.tirages ? (100 * c.sorties) / c.tirages : null);
+// ---------- La fiche d'une étoile ----------
+
+// Les trois époques : le nombre d'étoiles en jeu a changé, donc la chance de sortie d'une étoile aussi (2 sur 9, 2 sur 11, 2 sur 12).
+const EPOQUES_ETOILES = [
+  { nom: '2004 – mai 2011 (9 étoiles)', debut: '0000-00-00', fin: '2011-05-10', nb: 9 },
+  { nom: 'mai 2011 – sept. 2016 (11 étoiles)', debut: '2011-05-10', fin: '2016-09-27', nb: 11 },
+  { nom: 'depuis sept. 2016 (12 étoiles)', debut: '2016-09-27', fin: '9999-99-99', nb: 12 },
+];
+
+// Ce que le hasard donne 19 fois sur 20 pour `n` tirages et une chance `p` à chaque tirage (approximation usuelle).
+export function fourchette(n, p) {
+  const marge = 1.96 * Math.sqrt(n * p * (1 - p));
+  return { attendu: n * p, bas: Math.max(0, Math.floor(n * p - marge)), haut: Math.min(n, Math.ceil(n * p + marge)) };
+}
+
+// Ce que l'historique dit d'une étoile. Tout est mesuré à règle constante : époque par époque, puis en détail sous la règle actuelle.
+export function ficheEtoile(etoile, tirages) {
+  const avec = (t) => t[6] === etoile || t[7] === etoile;
+  const epoques = EPOQUES_ETOILES.filter((ep) => etoile <= ep.nb).map((ep) => {
+    const lot = tirages.filter((t) => t[0] >= ep.debut && t[0] < ep.fin), sorties = lot.filter(avec).length, f = fourchette(lot.length, 2 / ep.nb);
+    return { nom: ep.nom, tirages: lot.length, sorties, attenduPct: 200 / ep.nb, ...f, hors: sorties > f.haut ? 1 : sorties < f.bas ? -1 : 0 };
+  }).filter((ep) => ep.tirages > 0);
+
+  // depuis que l'étoile existe : retard, plus longue absence, et l'indice de sortie année par année
+  const premiere = EPOQUES_ETOILES.find((ep) => etoile <= ep.nb).debut;
+  const vie = tirages.filter((t) => t[0] >= premiere), annees = new Map();
+  let derniere = -1, plusLongue = 0, depuis = 0;
+  vie.forEach((t, i) => {
+    const annee = t[0].slice(0, 4), nb = EPOQUES_ETOILES.find((ep) => t[0] >= ep.debut && t[0] < ep.fin).nb;
+    if (!annees.has(annee)) annees.set(annee, { annee, sorties: 0, tirages: 0, attendus: 0 });
+    const a = annees.get(annee);
+    a.tirages++; a.attendus += 2 / nb;
+    if (avec(t)) { a.sorties++; derniere = i; depuis = 0; } else { depuis++; plusLongue = Math.max(plusLongue, depuis); }
+  });
+
+  // sous la règle actuelle (12 étoiles) : jour, saison, étoiles et numéros qui l'accompagnent
+  const actuels = tirages.filter((t) => t[0] >= EPOQUES_ETOILES[2].debut), sorties = actuels.filter(avec).length;
+  const compteur = (cles) => Object.fromEntries(cles.map((c) => [c, { sorties: 0, tirages: 0 }]));
+  const jours = compteur(['mardi', 'vendredi']), saisons = compteur(SAISONS);
+  const partenaires = Array(13).fill(0), numeros = Array(51).fill(0);
+  actuels.forEach((t) => {
+    const cases = [jours[jourSemaine(t[0]) === 2 ? 'mardi' : 'vendredi'], saisons[saison(Number(t[0].slice(5, 7)))]];
+    cases.forEach((c) => { c.tirages++; if (avec(t)) c.sorties++; });
+    if (avec(t)) { partenaires[t[6] === etoile ? t[7] : t[6]]++; t.slice(1, 6).forEach((n) => { numeros[n]++; }); }
+  });
+  const tete = (liste) => liste.map((c, i) => [i, c]).filter((x) => x[0] > 0).sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, 5);
+  return {
+    etoile, epoques,
+    actuelle: { tirages: actuels.length, sorties, ...fourchette(actuels.length, 1 / 6) },
+    retard: derniere < 0 ? vie.length : vie.length - 1 - derniere,
+    derniereSortie: derniere < 0 ? null : vie[derniere][0],
+    plusLongueAbsence: plusLongue,
+    ecartMoyen: sorties ? actuels.length / sorties : null,                          // attendu : 6 tirages avec 12 étoiles
+    annees: [...annees.values()].map((a) => ({ ...a, indice: a.attendus ? (100 * a.sorties) / a.attendus : null })),
+    jours, saisons,
+    partenaires: tete(partenaires), partenaireAttendu: sorties / 11,                 // l'autre étoile est une des 11 restantes
+    numeros: tete(numeros), numeroAttendu: sorties / 10,                             // chaque numéro sort 1 fois sur 10
+  };
+}
+
+// Ce que les enquêtes disent d'une étoile : les tableaux qui ont une ligne par étoile (ou par valeur de 1 à 12).
+export function enquetesDeLEtoile(etoile, donnees) {
+  const liste = [];
+  ['insolites', 'boulier', 'experiences'].forEach((bloc) => (donnees[bloc]?.fiches || []).forEach((f) => {
+    const d = f.detail;
+    if (!d || !['Étoile', 'Valeur'].includes(d.colonnes[0].t)) return;
+    const ligne = d.lignes.find((l) => l[0] === etoile);
+    if (!ligne) return;
+    const iHors = d.colonnes.findIndex((c) => c.t.startsWith(COLONNE_HORS)), rang = d.lignes.indexOf(ligne);
+    const inhabituel = iHors < 0 ? null : ligne[iHors] !== '', sens = iHors < 0 ? '' : ligne[iHors];
+    const hasard = d.bas ? ` (le hasard donne de ${fr(d.bas[rang])} à ${fr(d.haut[rang])} pour cette valeur)` : '';
+    const phrases = {
+      etoiles: () => `L'étoile ${etoile} est sortie ${fois(ligne[1])} lors des ${minuscule(f.fenetre)}, sur ${fr(f.n)} tirages à ces dates ` +
+        '(les étoiles 10 et 11 n\'existent que depuis mai 2011, la 12 depuis septembre 2016 : trop peu de tirages pour conclure).',
+      dette: () => (ligne[1] ? `L'étoile ${etoile} est revenue ${fois(ligne[1])} après une longue absence ; à ses retours, ${fr(ligne[2], 2)} de ses 5 numéros « fidèles » étaient présents en moyenne ` +
+        '(le hasard en donne 0,5 : ses numéros habituels ne reviennent pas avec elle).' : `L'étoile ${etoile} n'est jamais revenue après une longue absence sur la période étudiée.`),
+      cameleon: () => `Le numéro ${etoile} et l'étoile ${etoile} sont sortis le même soir ${fois(ligne[1])}${hasard}.`,
+    };
+    liste.push({ bloc, numero: f.numero, cle: f.cle, titre: f.titre, definition: f.definition, fenetre: f.fenetre, inhabituel, sens, suivi: false,
+      faits: d.colonnes.map((c, i) => ({ t: c.t, v: ligne[i], dec: c.dec })).filter((_, i) => i > 0 && i !== iHors),
+      phrase: (phrases[f.cle] ? phrases[f.cle]() : '') + verdict(inhabituel, sens) });
+  }));
+  return liste;
+}
+
+export const pourcent = (c) => (c.tirages ? (100 * c.sorties) / c.tirages : null);

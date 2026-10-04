@@ -9,7 +9,7 @@ import { rejouer } from './moteur/rejeu.js';
 import * as carnetOutils from './moteur/carnet.js';
 import * as formuleOutils from './moteur/decks.js';
 import { THEMES, CATEGORIES, COULEURS_PERSO, appliquer, palette, couleurThermique } from './themes.js';
-import { ficheNumero, pourcent, jauge, enquetesDuNumero, bilanEnquetes, resumeFiche } from './labo.js';
+import { ficheNumero, ficheEtoile, enquetesDeLEtoile, pourcent, jauge, enquetesDuNumero, bilanEnquetes, resumeFiche } from './labo.js';
 import { phraseProfil, phraseFetiches, definitionStyle, nombre, signe, dateFr, MENTIONS } from './textes.js';
 
 const $ = (id) => document.getElementById(id);
@@ -34,7 +34,7 @@ let reglages = charger(stockage);
 let formules = formuleOutils.charger(stockage);
 let carnet = carnetOutils.charger(stockage);
 let labo = monLabo.charger(stockage);
-const etat = { vue: 'grilles', grilles: [], mode: 'chaud', choisi: null, sousVue: 'rejeu', rapide: false, rejeu: null, message: '',
+const etat = { vue: 'grilles', grilles: [], mode: 'chaud', choisi: null, etoileChoisie: null, sousVue: 'rejeu', rapide: false, rejeu: null, message: '',
   labo: { fil: [], spec: null, question: '', dernier: null, menus: false } };
 
 const aujourdhui = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
@@ -107,8 +107,11 @@ function htmlRecap() {
 // Les numéros fétiches et leur dosage. `v` : là où ils sont rangés (les styles purs et « Mon mélange » ont chacun les leurs).
 function htmlFetiches(v) {
   return `<div class="ligne"><label>Jusqu'à ${FETICHES_MAX} numéros <input id="f-numeros" inputmode="numeric" placeholder="ex. 7 13 21" value="${v.fetiches.join(' ')}"></label></div>` +
-    `<div class="ligne"><label>Dosage <select id="f-dosage">${Object.entries(DOSAGES).map(([cle, d]) => `<option value="${cle}"${cle === v.dosage ? ' selected' : ''}>${d.nom} — chaque fétiche placé dans ${d.texte}</option>`).join('')}</select></label>` +
-    (v.fetiches.length ? '<button class="bouton" id="f-retirer">Retirer les fétiches</button>' : '') + '</div>' +
+    // le dosage : trois boutons courts, et l'explication en dessous, qui passe à la ligne (un menu déroulant débordait sur téléphone)
+    '<p class="legende-filtre" style="margin:10px 0 6px">Dosage</p><div class="puces">' +
+    Object.entries(DOSAGES).map(([cle, d]) => `<button class="puce${cle === v.dosage ? ' actif' : ''}" data-dosage="${cle}">${d.nom}</button>`).join('') + '</div>' +
+    `<p class="definition" style="margin-top:6px"><b>${DOSAGES[v.dosage].nom} :</b> chaque fétiche est placé dans ${DOSAGES[v.dosage].texte}.</p>` +
+    (v.fetiches.length ? '<div class="ligne"><button class="bouton" id="f-retirer">Retirer les fétiches</button></div>' : '') +
     `<p class="discret">${v.fetiches.length ? `Fétiche${v.fetiches.length > 1 ? 's' : ''} actif${v.fetiches.length > 1 ? 's' : ''} : ${v.fetiches.join(', ')}.` : 'Aucun fétiche actif.'}</p>`;
 }
 
@@ -262,7 +265,7 @@ function vueGrilles(racine) {
   const cible = melange ? reglages.melange : reglages;
   const apresReglage = () => { etat.grilles = []; etat.rejeu = null; memoriser(); afficher(); };
   $('f-numeros').onchange = () => { cible.fetiches = validerFetiches(lireListe($('f-numeros').value)); apresReglage(); };
-  $('f-dosage').onchange = () => { cible.dosage = $('f-dosage').value; apresReglage(); };
+  racine.querySelectorAll('[data-dosage]').forEach((b) => { b.onclick = () => { cible.dosage = b.dataset.dosage; apresReglage(); }; });
   if ($('f-retirer')) $('f-retirer').onclick = () => { cible.fetiches = []; apresReglage(); };
 
   if (melange) {
@@ -580,25 +583,80 @@ function htmlPlateau() {
     (etat.mode === 'chaud' ? `<p class="discret">Sur les ${R().fenetreChaud} derniers tirages.</p>` : '') +
     `<div class="plateau" style="margin-top:10px">${cn.map((c, i) => `<button class="boule${etat.choisi === i + 1 ? ' choisi' : ''}" style="--t:${teinte(c)}" data-numero="${i + 1}">${i + 1}</button>`).join('')}</div>` +
     `<p class="legende-filtre" style="margin:12px 0 4px">Les 12 étoiles</p>` +
-    `<div class="rangee-etoiles">${ce.map((c, i) => `<span class="boule etoile" style="--t:${teinte(c)}">${i + 1}</span>`).join('')}</div>`;
+    `<div class="rangee-etoiles">${ce.map((c, i) => `<button class="boule etoile${etat.etoileChoisie === i + 1 ? ' choisi' : ''}" style="--t:${teinte(c)}" data-etoile="${i + 1}">${i + 1}</button>`).join('')}</div>`;
+}
+
+// Barres par année pour une étoile. La chance d'une étoile a changé avec les époques : la hauteur est un indice,
+// 100 = exactement ce que le hasard donne cette année-là.
+function barresIndice(annees) {
+  const max = Math.max(...annees.map((a) => a.indice || 0), 150);
+  return `<div class="barres"><b class="repere" style="bottom:${(100 * 100) / max}%"></b>${annees.map((a) => {
+    const info = `${a.annee} : ${a.sorties} sorties sur ${a.tirages} tirages (${nombre(pourcent(a), 1)} %), pour ${nombre(a.attendus, 1)} attendues — indice ${nombre(a.indice)}`;
+    return `<i style="height:${Math.max(2, (100 * (a.indice || 0)) / max)}%;background:${couleurThermique(((a.indice || 0) - 50) / 100, pal)}" title="${info}" data-info="${info}" tabindex="0"></i>`;
+  }).join('')}</div>` +
+    `<div class="barres-textes"><span>${annees[0].annee}</span><span>${annees[annees.length - 1].annee}</span></div>` +
+    '<p class="barres-info" id="barres-info">Touchez ou survolez une barre pour voir l\'année et la valeur exacte.</p>' +
+    '<div class="echelle"></div><div class="echelle-textes"><span>moins que prévu</span><span>pointillé : indice 100, l\'attendu</span><span>plus que prévu</span></div>';
+}
+
+function ficheEtoileHtml(e) {
+  const f = ficheEtoile(e, D.tirages), enquetes = enquetesDeLEtoile(e, D);
+  const ligne = (nom, c) => `<tr><td>${nom}</td><td>${c.sorties} sur ${nombre(c.tirages)}</td><td>${nombre(pourcent(c), 1)} %</td></tr>`;
+  const groupe = (objet) => Object.entries(objet).map(([nom, c]) => ligne(nom, c)).join('');
+  const valeur = (x) => (x.v === null || x.v === undefined ? '—' : typeof x.v === 'number' && x.dec !== null ? nombre(x.v, x.dec) : x.v);
+  const epoques = f.epoques.map((ep) => {
+    const j = jauge({ obs: ep.sorties, att: ep.attendu, bas: ep.bas, haut: ep.haut });
+    return `<div class="enquete${ep.hors ? ' marquee' : ''}"><div class="entete"><span>${ep.nom}</span>${badge(ep.hors !== 0, ep.hors > 0 ? '▲ au-dessus' : '▼ en dessous')}</div>` +
+      `<div class="mesure"><span class="discret">${nombre(ep.tirages)} tirages</span><b>${ep.sorties} sorties (${nombre((100 * ep.sorties) / ep.tirages, 1)} %)</b></div>` +
+      `<div class="piste" title="${AIDE_JAUGE}"><i class="hasard" style="left:${j.gauche}%;width:${j.largeur}%"></i><i class="attendu" style="left:${j.attendu}%"></i><i class="observe" style="left:${j.observe}%"></i></div>` +
+      `<div class="echelle-textes"><span>attendu ${nombre(ep.attendu, 1)} (${nombre(ep.attenduPct, 1)} %)</span><span>le hasard : de ${ep.bas} à ${ep.haut}</span></div>` +
+      `<p class="resume">L'étoile ${e} est sortie ${ep.sorties} fois sur les ${nombre(ep.tirages)} tirages de cette époque, soit ${nombre((100 * ep.sorties) / ep.tirages, 1)} % contre ${nombre(ep.attenduPct, 1)} % attendus par le hasard pur ` +
+      `(${nombre(ep.attendu, 1)} sorties attendues ; le hasard donne environ de ${ep.bas} à ${ep.haut}). Verdict : ${ep.hors ? `hors de l'ordinaire (${ep.hors > 0 ? 'au-dessus' : 'en dessous'}).` : 'dans la norme.'}</p></div>`;
+  }).join('');
+  const carteEnquete = (q) => `<div class="enquete ${FAMILLES[q.bloc].classe}${q.inhabituel ? ' marquee' : ''}"><div class="entete"><b>${q.titre}</b>${q.inhabituel === null ? '' : badge(q.inhabituel, q.sens)}</div>` +
+    `<p class="definition-fiche">${q.definition ?? ''}</p><ul>${q.faits.map((x) => `<li>${x.t} : <b>${valeur(x)}</b></li>`).join('')}</ul>` +
+    (q.phrase ? `<p class="resume">${q.phrase}</p>` : '') + '</div>';
+  return `<div class="carte"><h2>Étoile ${e}</h2>` +
+    `<div class="mesure"><span>Sorties depuis septembre 2016 (12 étoiles)</span><b>${f.actuelle.sorties} (attendu ${nombre(f.actuelle.attendu, 1)})</b></div>` +
+    `<div class="mesure"><span>Dernière sortie</span><b>${f.derniereSortie ? dateFr(f.derniereSortie) : 'jamais'} — il y a ${pluriel(f.retard, 'tirage')}</b></div>` +
+    `<div class="mesure"><span>Plus longue absence</span><b>${f.plusLongueAbsence} tirages</b></div>` +
+    `<div class="mesure"><span>Écart moyen entre deux sorties</span><b>${nombre(f.ecartMoyen, 1)} tirages (attendu 6)</b></div>` +
+    `<div class="mesure"><span>Jouée par la foule</span><b>${signe(D.populaire.etoiles[e - 1], 1)} % de gagnants quand elle sort</b></div>` +
+    '<p class="discret">Une étoile sort 2 fois sur 12 aujourd\'hui, soit 1 tirage sur 6. Avant 2016, il y avait moins d\'étoiles, donc chacune sortait plus souvent : chaque époque est comparée à sa propre règle.</p>' +
+    `<h3>Époque par époque</h3>${epoques}` +
+    `<h3>Indice de sortie par année</h3>${barresIndice(f.annees)}` +
+    '<h3>Jour et saison, depuis septembre 2016</h3><table><tr><th></th><th>Sorties</th><th>Part</th></tr>' + groupe(f.jours) + groupe(f.saisons) + '</table>' +
+    '<p class="discret">Le hasard donne 16,7 % partout ; de petits écarts sont normaux.</p>' +
+    `<h3>Sortie le plus souvent avec l'étoile</h3><div class="boules">${f.partenaires.map(([m, c]) => boule(m, chaleurs(etat.mode)[1][m - 1], true) + `<span class="discret">${c} fois</span>`).join('')}</div>` +
+    `<p class="discret">Depuis 2016. Une autre étoile quelconque est attendue ${nombre(f.partenaireAttendu, 1)} fois avec elle.</p>` +
+    `<h3>Sortie le plus souvent avec les numéros</h3><div class="boules">${f.numeros.map(([m, c]) => boule(m, chaleurs(etat.mode)[0][m - 1]) + `<span class="discret">${c} fois</span>`).join('')}</div>` +
+    `<p class="discret">Depuis 2016. Un numéro quelconque est attendu ${nombre(f.numeroAttendu, 1)} fois avec elle. Parmi 50 numéros, il y en a toujours quelques-uns en tête.</p>` +
+    (enquetes.length ? `<h3>Cette étoile dans les enquêtes</h3>${enquetes.map(carteEnquete).join('')}` : '') +
+    '<p class="transparence">Cette fiche décrit le passé. Une étoile sortie souvent ou absente depuis longtemps n\'a pas plus de chances de sortir au prochain tirage : les étoiles sont tirées dans une urne à part, sans mémoire.</p>' +
+    '<div class="ligne"><button class="bouton" data-action="haut">↑ Retour en haut</button><button class="bouton" data-action="fermer">Fermer la fiche</button></div></div>';
 }
 
 function vueNumeros(racine) {
   const s = reglages.seuils;
-  racine.innerHTML = '<div class="carte" id="haut-numeros"><h2>Les 50 numéros</h2><div class="puces filtres">' +
+  racine.innerHTML = '<div class="carte" id="haut-numeros"><h2>Les 50 numéros et les 12 étoiles</h2><div class="puces filtres">' +
     Object.entries(MODES).map(([cle, x]) => `<button class="puce${cle === etat.mode ? ' actif' : ''}" data-mode="${cle}">${x.nom}</button>`).join('') + '</div>' +
     `<div id="plateau">${htmlPlateau()}</div>` +
-    '<p class="discret" style="margin-top:10px">Touchez un numéro pour ouvrir sa fiche.</p>' +
+    '<p class="discret" style="margin-top:10px">Touchez un numéro ou une étoile pour ouvrir sa fiche.</p>' +
     '<details id="d-seuils"><summary>Régler les seuils du dégradé</summary>' +
     '<p class="discret">Les couleurs classent les numéros du plus froid (0 %) au plus chaud (100 %). En resserrant les seuils, seuls les extrêmes gardent une couleur franche.</p>' +
     `<div class="curseur"><span>Tout froid sous</span><input type="range" id="s-froid" min="0" max="90" step="5" value="${s.froid}"><span id="s-froid-v">${s.froid} %</span></div>` +
     `<div class="curseur"><span>Tout chaud dès</span><input type="range" id="s-chaud" min="10" max="100" step="5" value="${s.chaud}"><span id="s-chaud-v">${s.chaud} %</span></div>` +
     '<div class="ligne"><button class="bouton" id="s-defaut">Revenir au dégradé complet</button></div></details></div>' +
-    `<div id="fiche">${etat.choisi ? ficheHtml(etat.choisi) : ''}</div>`;
+    `<div id="fiche">${etat.choisi ? ficheHtml(etat.choisi) : etat.etoileChoisie ? ficheEtoileHtml(etat.etoileChoisie) : ''}</div>`;
   racine.querySelectorAll('[data-mode]').forEach((b) => { b.onclick = () => { etat.mode = b.dataset.mode; afficher(); }; });
-  const brancherPlateau = () => racine.querySelectorAll('[data-numero]').forEach((b) => {
-    b.onclick = () => { etat.choisi = Number(b.dataset.numero); afficher(); $('fiche').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
-  });
+  const brancherPlateau = () => {
+    racine.querySelectorAll('[data-numero]').forEach((b) => {
+      b.onclick = () => { etat.choisi = Number(b.dataset.numero); etat.etoileChoisie = null; afficher(); $('fiche').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+    });
+    racine.querySelectorAll('[data-etoile]').forEach((b) => {
+      b.onclick = () => { etat.etoileChoisie = Number(b.dataset.etoile); etat.choisi = null; afficher(); $('fiche').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+    });
+  };
   brancherPlateau();
   const seuil = (cle) => () => {
     reglages.seuils = { ...reglages.seuils, [cle]: Number($('s-' + cle).value) };
@@ -616,8 +674,8 @@ function vueNumeros(racine) {
   });
   racine.querySelectorAll('[data-action]').forEach((b) => {
     b.onclick = () => {
-      if (b.dataset.action === 'fermer') { etat.choisi = null; afficher(); }
-      if (b.dataset.action === 'replier') $('identite').open = false;
+      if (b.dataset.action === 'fermer') { etat.choisi = null; etat.etoileChoisie = null; afficher(); }
+      if (b.dataset.action === 'replier' && $('identite')) $('identite').open = false;
       $(b.dataset.action === 'replier' ? 'fiche' : 'haut-numeros').scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
   });
@@ -967,6 +1025,7 @@ async function demarrer() {
   if (VUES[vue]) etat.vue = vue;
   [vue, option].filter((x) => ENQUETES[x] || x === 'monlabo').forEach((x) => { etat.vue = 'mesures'; etat.sousVue = x; });
   if (vue === 'numeros' && Number(option) >= 1 && Number(option) <= 50) etat.choisi = Number(option);
+  if (vue === 'etoile' && Number(option) >= 1 && Number(option) <= 12) { etat.vue = 'numeros'; etat.etoileChoisie = Number(option); }
   // « ?rapide » (raccourci de l'icône) ouvre directement le mode rapide et génère
   if (parametres.has('rapide') && reglages.mentionsAcceptees) { etat.vue = 'grilles'; etat.rapide = true; }
   if (apercu !== null && option === 'demo') {
