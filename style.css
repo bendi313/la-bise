@@ -141,6 +141,12 @@ th { color: var(--texte2); font-weight: 400; }
 .famille-boulier { --famille: var(--accent2); }
 .famille-experiences { --famille: var(--chaud); }
 .famille-monlabo { --famille: var(--accent); }
+/* L'interrupteur des deux modes de génération, en haut de l'onglet Grilles. */
+.bascule { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: 0 0 12px; border: 1px solid var(--bord); border-radius: var(--rayon); overflow: hidden; }
+.bascule button { background: var(--surface); border: 0; padding: 10px 8px; cursor: pointer; color: var(--texte2); display: flex; flex-direction: column; gap: 2px; align-items: center; min-height: 56px; }
+.bascule button b { font-size: 16px; }
+.bascule button small { font-size: 12px; }
+.bascule button.actif { background: var(--accent); color: var(--sur-accent); box-shadow: 0 0 calc(12px * var(--lueur)) var(--accent); }
 /* Mon Labo : le fil de la conversation. */
 .fil { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
 .bulle { max-width: 94%; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--bord); }

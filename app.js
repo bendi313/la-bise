@@ -2,7 +2,7 @@
 
 import { contexte, NOMS_CRITERES, LOIS } from './moteur/criteres.js';
 import * as monLabo from './moteur/monlabo.js';
-import { PROFILS, NOMBRES_DE_GRILLES, DOSAGES, FETICHES_MAX, charger, sauver, valider, validerFetiches, profilActif } from './moteur/reglages.js';
+import { PROFILS, NOMBRES_DE_GRILLES, DOSAGES, FETICHES_MAX, charger, sauver, valider, validerFetiches, profilActif, effectifs } from './moteur/reglages.js';
 import { generer } from './moteur/generateur.js';
 import { versCSV, versJSON, versTicket, telecharger } from './moteur/export.js';
 import { rejouer } from './moteur/rejeu.js';
@@ -66,21 +66,30 @@ function boulesGrille(g, bons = null) {
 
 // ---------- Grilles ----------
 
+// Les réglages qui servent réellement à générer, selon le mode : jeu classique ou Moteur Labo. Les deux ne se mélangent pas.
+const R = () => effectifs(reglages);
+const modeLabo = () => reglages.mode === 'labo';
+
 function transparence() {
-  const actif = profilActif(reglages);
+  if (modeLabo()) {
+    const lois = loisCochees();
+    return lois.length
+      ? lois.map((l) => `<p class="definition"><b>Loi du labo — ${l.nom} :</b> ${l.texte}</p><p class="transparence"><b>Ce que le laboratoire a mesuré.</b> ${l.mesure}</p>`).join('')
+      : `<p class="definition"><b>Aucune loi cochée :</b> les grilles sont tirées au hasard pur.</p><p class="transparence"><b>Ce que le laboratoire a mesuré.</b> ${phraseProfil('hasard', D.rejeu)}</p>`;
+  }
+  const actif = profilActif(R());
   const bloc = (cle, nom) => `<p class="definition"><b>${nom} :</b> ${definitionStyle(cle, reglages)}</p><p class="transparence"><b>Ce que le laboratoire a mesuré.</b> ${phraseProfil(cle, D.rejeu)}</p>`;
   const styles = actif !== 'mixte'
     ? bloc(actif, PROFILS.find((p) => p.cle === actif).nom)
     : '<p class="definition"><b>Mon mélange :</b> les grilles sont notées sur plusieurs styles à la fois, selon les poids des « Réglages fins ».</p>' +
       Object.keys(NOMS_CRITERES).filter((c) => reglages.poids[c] > 0).map((c) => bloc(c, PROFILS.find((p) => p.cle === c).nom)).join('');
   const fetiches = phraseFetiches(reglages.fetiches, D.populaire);
-  const lois = loisCochees().map((l) => `<p class="definition"><b>Loi du labo — ${l.nom} :</b> ${l.texte}</p>` +
-    `<p class="transparence"><b>Ce que le laboratoire a mesuré.</b> ${l.mesure}</p>`).join('');
-  return styles + lois + (fetiches ? `<p class="transparence">${fetiches}</p>` : '');
+  return styles + (fetiches ? `<p class="transparence">${fetiches}</p>` : '');
 }
 
-// Les lois du labo cochées pour la génération : les trois lois intégrées et celles tirées de Mon Labo.
+// Les lois du labo cochées (Moteur Labo uniquement) : les trois lois intégrées et celles tirées de Mon Labo.
 function loisCochees() {
+  if (!modeLabo()) return [];
   const fiche = (cle) => D.experiences.fiches.find((f) => f.cle === cle);
   const mesures = {
     gauss: `Loi appliquée par goût : elle ne change pas la chance de gagner. ${fiche('retour').complement} ${fiche('retour').lecture}`,
@@ -94,57 +103,112 @@ function loisCochees() {
   ];
 }
 
-// Les mesures de Mon Labo cochées comme lois, sous la forme attendue par le moteur.
+// Les mesures de Mon Labo cochées comme lois, sous la forme attendue par le moteur (Moteur Labo uniquement).
 function loisPersoActives() {
+  if (!modeLabo()) return [];
   return labo.mesures.filter((m) => reglages.loisPerso.includes(m.id)).map((m) => ({ id: m.id, loi: monLabo.loiDeGrille(m.spec) })).filter((x) => x.loi);
 }
 
-const construireContexte = () => contexte(D, reglages, loisPersoActives());
+const construireContexte = () => contexte(D, R(), loisPersoActives());
 
 function carteGrille(g, i) {
   const respect = g.respect === null
     ? '<div class="mesure"><span>Respect de vos réglages</span><b>hasard pur</b></div>'
     : `<div class="mesure"><span>Respect de vos réglages</span><b>${nombre(g.respect)} %</b></div><div class="jauge"><i style="width:${g.respect}%"></i></div>`;
-  const detail = Object.keys(NOMS_CRITERES).map((c) => `<tr><td>${NOMS_CRITERES[c]}</td><td>${nombre(100 * g.notes[c])} %</td><td>poids ${reglages.poids[c]}</td></tr>`).join('') +
-    (g.notes.fetiches === null ? '' : `<tr><td>Fétiches</td><td>${nombre(100 * g.notes.fetiches)} %</td><td>poids ${DOSAGES[reglages.dosage].poids}</td></tr>`) +
-    loisCochees().map((l) => `<tr><td>Loi : ${l.nom}</td><td>${nombre(100 * (g.notes.lois?.[l.cle] ?? 0))} %</td><td>poids 100</td></tr>`).join('');
+  const detail = modeLabo()
+    ? loisCochees().map((l) => `<tr><td>Loi : ${l.nom}</td><td>${nombre(100 * (g.notes.lois?.[l.cle] ?? 0))} %</td><td>poids 100</td></tr>`).join('')
+    : Object.keys(NOMS_CRITERES).map((c) => `<tr><td>${NOMS_CRITERES[c]}</td><td>${nombre(100 * g.notes[c])} %</td><td>poids ${reglages.poids[c]}</td></tr>`).join('') +
+      (g.notes.fetiches === null ? '' : `<tr><td>Fétiches</td><td>${nombre(100 * g.notes.fetiches)} %</td><td>poids ${DOSAGES[reglages.dosage].poids}</td></tr>`);
   return `<div class="carte grille" style="animation-delay:${Math.min(i, 12) * 60}ms">${boulesGrille(g)}${respect}` +
     `<div class="mesure"><span>Effet de partage estimé</span><b>${signe(g.partage.gain, 1)} % de gain si elle sort</b></div>` +
-    `<details><summary>Détail</summary><table>${detail}</table>` +
+    `<details><summary>Détail</summary>${detail ? `<table>${detail}</table>` : ''}` +
     `<p class="discret">Somme des numéros : ${g.numeros.reduce((a, b) => a + b, 0)}. Estimation : ${signe(g.partage.gagnants, 1)} % de gagnants par rapport à une grille ordinaire. Cette estimation vient des petits rangs ; qu'elle vaille aussi pour le gros lot est une supposition.</p></details>` +
-    `<div class="ligne"><button class="bouton" data-carnet="${i}">Ajouter au carnet</button></div></div>`;
+    `<div class="ligne"><button class="bouton" data-fresque="${i}">Voir sa fresque historique (2004-${dernierTirage.slice(0, 4)})</button>` +
+    `<button class="bouton" data-carnet="${i}">Ajouter au carnet</button></div></div>`;
 }
 
 function lancer() {
-  etat.grilles = generer(reglages.nombre, reglages, ctx, D.populaire);
+  etat.grilles = generer(reglages.nombre, R(), ctx, D.populaire);
+  if (etat.rejeu?.depuisGrilles) etat.rejeu = null;
   resultats();
 }
 
 function nomDuStyle() {
-  const actif = profilActif(reglages);
+  if (modeLabo()) { const n = loisCochees().length; return `Moteur Labo, ${n ? `${n} loi${n > 1 ? 's' : ''}` : 'aucune loi'}`; }
+  const actif = profilActif(R());
   return actif === 'mixte' ? 'Mon mélange' : PROFILS.find((p) => p.cle === actif).nom;
 }
 
 function vueRapide(racine) {
   racine.innerHTML = `<div class="carte"><h2>Mode rapide</h2><p class="discret">${nomDuStyle()} · ${pluriel(reglages.nombre, 'grille')}` +
-    (reglages.fetiches.length ? ` · fétiches ${reglages.fetiches.join(', ')}` : '') + `</p>${transparence()}` +
+    (!modeLabo() && reglages.fetiches.length ? ` · fétiches ${reglages.fetiches.join(', ')}` : '') + `</p>${transparence()}` +
     '<button class="bouton principal" id="generer">GÉNÉRER</button>' +
-    '<div class="ligne"><button class="bouton" id="quitter-rapide">Quitter le mode rapide</button></div></div><div id="resultats"></div>';
+    '<div class="ligne"><button class="bouton" id="quitter-rapide">Quitter le mode rapide</button></div></div><div id="resultats"></div><div id="fresque"></div>';
   $('generer').onclick = lancer;
   $('quitter-rapide').onclick = () => { etat.rapide = false; afficher(); };
   resultats();
 }
 
+// L'interrupteur en haut de l'onglet : deux modes de génération, chacun avec ses propres réglages.
+function htmlBascule() {
+  return '<div class="bascule" role="tablist">' +
+    `<button role="tab" class="${modeLabo() ? '' : 'actif'}" data-mode-jeu="classique"><b>Jeu classique</b><small>Styles, réglages fins, fétiches</small></button>` +
+    `<button role="tab" class="${modeLabo() ? 'actif' : ''}" data-mode-jeu="labo"><b>Moteur Labo</b><small>Lois du laboratoire, expérimental</small></button></div>`;
+}
+
+const htmlNombreEtAffichage = () =>
+  `<div class="ligne"><label>Nombre de grilles <select id="r-nombre">${NOMBRES_DE_GRILLES.map((n) => `<option${n === reglages.nombre ? ' selected' : ''}>${n}</option>`).join('')}</select></label>` +
+  `<label>Affichage <select id="r-affichage"><option value="moderne"${reglages.affichage === 'moderne' ? ' selected' : ''}>Moderne</option><option value="ticket"${reglages.affichage === 'ticket' ? ' selected' : ''}>Ticket rétro</option></select></label></div>` +
+  '<button class="bouton principal" id="generer">GÉNÉRER</button>';
+
+// Ce qui est commun aux deux modes : l'interrupteur, le nombre de grilles, l'affichage, les boutons.
+function brancherCommun(racine) {
+  racine.querySelectorAll('[data-mode-jeu]').forEach((b) => {
+    b.onclick = () => { reglages.mode = b.dataset.modeJeu; etat.grilles = []; etat.rejeu = null; memoriser(); afficher(); };
+  });
+  $('r-nombre').onchange = () => { reglages.nombre = Number($('r-nombre').value); memoriser(); };
+  $('r-affichage').onchange = () => { reglages.affichage = $('r-affichage').value; memoriser(); resultats(); };
+  $('generer').onclick = lancer;
+  $('rapide').onclick = () => { etat.rapide = true; afficher(); lancer(); };
+  resultats();
+}
+
+function vueGrillesLabo(racine) {
+  const utilisables = labo.mesures.filter((m) => monLabo.loiDeGrille(m.spec));
+  racine.innerHTML = htmlBascule() +
+    '<div class="carte famille famille-monlabo"><div class="entete"><h2><span class="etiquette-famille">Moteur Labo</span></h2><button class="bouton" id="rapide">⚡ Mode rapide</button></div>' +
+    '<p>Mode expérimental. Les grilles sont choisies selon les lois du laboratoire que vous cochez ci-dessous, et seulement elles : les styles, les réglages fins et les fétiches du jeu classique ne s\'appliquent pas ici.</p>' +
+    '<h3>Lois du laboratoire</h3>' +
+    Object.entries(LOIS).map(([cle, l]) => `<label class="case"><input type="checkbox" data-loi="${cle}"${reglages.lois[cle] ? ' checked' : ''}><span><b>${l.nom}.</b> ${l.texte}</span></label>`).join('') +
+    '<h3>Lois tirées de Mon Labo</h3>' +
+    (utilisables.length
+      ? utilisables.map((m) => `<label class="case"><input type="checkbox" data-loi-perso="${encodeURIComponent(m.id)}"${reglages.loisPerso.includes(m.id) ? ' checked' : ''}>` +
+        `<span><b>${m.question || 'Mesure enregistrée'}.</b> Grilles où « ${monLabo.loiDeGrille(m.spec).texte} »</span></label>`).join('')
+      : '<p class="discret">Aucune pour l\'instant. Une mesure enregistrée dans « Mon Labo » (onglet Mesures) apparaît ici quand elle décrit une forme de grille, par exemple « au moins 3 numéros pairs ».</p>') +
+    transparence() + htmlNombreEtAffichage() + '</div><div id="resultats"></div><div id="fresque"></div>';
+  racine.querySelectorAll('[data-loi]').forEach((c) => { c.onchange = () => { reglages.lois[c.dataset.loi] = c.checked; memoriser(); afficher(); }; });
+  racine.querySelectorAll('[data-loi-perso]').forEach((c) => {
+    c.onchange = () => {
+      const id = decodeURIComponent(c.dataset.loiPerso);
+      reglages.loisPerso = c.checked ? [...reglages.loisPerso, id] : reglages.loisPerso.filter((x) => x !== id);
+      memoriser(); afficher();
+    };
+  });
+  brancherCommun(racine);
+}
+
 function vueGrilles(racine) {
   if (etat.rapide) { vueRapide(racine); return; }
-  const actif = profilActif(reglages), deckCourant = deckOutils.deckActif(decks, reglages);
-  racine.innerHTML = '<div class="carte"><div class="entete"><h2>Mon style de jeu</h2><button class="bouton" id="rapide">⚡ Mode rapide</button></div>' +
+  if (modeLabo()) { vueGrillesLabo(racine); return; }
+  const actif = profilActif(R()), deckCourant = deckOutils.deckActif(decks, reglages);
+  racine.innerHTML = htmlBascule() +
+    '<div class="carte"><div class="entete"><h2>Mon style de jeu</h2><button class="bouton" id="rapide">⚡ Mode rapide</button></div>' +
     '<div class="puces">' + PROFILS.map((p) => `<button class="puce${p.cle === actif ? ' actif' : ''}" data-profil="${p.cle}">${p.nom}</button>`).join('') +
     (actif === 'mixte' ? '<button class="puce actif">Mon mélange</button>' : '') + '</div>' + transparence() +
 
     '<details id="d-decks"><summary>Mes decks' + (deckCourant ? ` — ${deckCourant}` : '') + '</summary>' +
     (decks.length ? '<div class="puces">' + decks.map((d) => `<button class="puce${d.nom === deckCourant ? ' actif' : ''}" data-deck="${d.nom}">${d.nom}</button>`).join('') + '</div>'
-      : '<p class="discret">Un deck garde toute la configuration en cours (style, réglages fins, fétiches, thème, affichage) sous un nom.</p>') +
+      : '<p class="discret">Un deck garde toute la configuration en cours (mode, style, réglages fins, fétiches, lois, thème, affichage) sous un nom.</p>') +
     `<div class="ligne"><input id="deck-nom" maxlength="30" placeholder="Nom du deck" value="${deckCourant ?? ''}"><button class="bouton" id="deck-garder">Enregistrer</button>` +
     (deckCourant ? '<button class="bouton" id="deck-oter">Supprimer</button>' : '') + '</div><p class="discret" id="deck-message"></p></details>' +
 
@@ -154,19 +218,7 @@ function vueGrilles(racine) {
     `<div class="ligne"><label>Somme entre <input type="number" id="r-min" min="15" max="240" value="${reglages.sommeMin}"> et <input type="number" id="r-max" min="15" max="240" value="${reglages.sommeMax}"></label></div>` +
     `<h3>Numéros fétiches</h3><div class="ligne"><label>Jusqu'à ${FETICHES_MAX} numéros <input id="r-fetiches" inputmode="numeric" placeholder="ex. 7 13 21" value="${reglages.fetiches.join(' ')}"></label></div>` +
     `<div class="ligne"><label>Dosage <select id="r-dosage">${Object.entries(DOSAGES).map(([cle, d]) => `<option value="${cle}"${cle === reglages.dosage ? ' selected' : ''}>${d.nom} — ${d.texte}</option>`).join('')}</select></label></div>` +
-    '</details>' +
-
-    `<details id="d-lois"><summary>Tirage Labo / Expérimental${loisCochees().length ? ` — ${loisCochees().length} loi${loisCochees().length > 1 ? 's' : ''}` : ''}</summary>` +
-    '<p class="discret">Cochez les lois du labo à appliquer aux grilles. Chacune compte comme un style à plein poids. Aucune ne change la chance de gagner.</p>' +
-    Object.entries(LOIS).map(([cle, l]) => `<label class="case"><input type="checkbox" data-loi="${cle}"${reglages.lois[cle] ? ' checked' : ''}><span><b>${l.nom}.</b> ${l.texte}</span></label>`).join('') +
-    labo.mesures.filter((m) => monLabo.loiDeGrille(m.spec)).map((m) => `<label class="case"><input type="checkbox" data-loi-perso="${encodeURIComponent(m.id)}"${reglages.loisPerso.includes(m.id) ? ' checked' : ''}>` +
-      `<span><b>Mon Labo.</b> Grilles où « ${monLabo.loiDeGrille(m.spec).texte} »</span></label>`).join('') +
-    (labo.mesures.length ? '' : '<p class="discret">Les mesures enregistrées dans « Mon Labo » (onglet Mesures) apparaîtront ici.</p>') +
-    '</details>' +
-
-    `<div class="ligne"><label>Nombre de grilles <select id="r-nombre">${NOMBRES_DE_GRILLES.map((n) => `<option${n === reglages.nombre ? ' selected' : ''}>${n}</option>`).join('')}</select></label>` +
-    `<label>Affichage <select id="r-affichage"><option value="moderne"${reglages.affichage === 'moderne' ? ' selected' : ''}>Moderne</option><option value="ticket"${reglages.affichage === 'ticket' ? ' selected' : ''}>Ticket rétro</option></select></label></div>` +
-    '<button class="bouton principal" id="generer">GÉNÉRER</button></div><div id="resultats"></div>';
+    '</details>' + htmlNombreEtAffichage() + '</div><div id="resultats"></div><div id="fresque"></div>';
 
   const garder = (...ouverts) => { afficher(); ouverts.forEach((id) => { $(id).open = true; }); };
   racine.querySelectorAll('[data-profil]').forEach((b) => {
@@ -179,21 +231,9 @@ function vueGrilles(racine) {
   const champ = (id, cle, lireValeur = (v) => Number(v)) => { $(id).onchange = () => { reglages[cle] = lireValeur($(id).value); memoriser(); garder('d-fins'); }; };
   champ('r-fenetre', 'fenetreChaud'); champ('r-min', 'sommeMin'); champ('r-max', 'sommeMax');
   champ('r-fetiches', 'fetiches', (v) => validerFetiches(lireListe(v))); champ('r-dosage', 'dosage', (v) => v);
-  racine.querySelectorAll('[data-loi]').forEach((c) => { c.onchange = () => { reglages.lois[c.dataset.loi] = c.checked; memoriser(); garder('d-lois'); }; });
-  racine.querySelectorAll('[data-loi-perso]').forEach((c) => {
-    c.onchange = () => {
-      const id = decodeURIComponent(c.dataset.loiPerso);
-      reglages.loisPerso = c.checked ? [...reglages.loisPerso, id] : reglages.loisPerso.filter((x) => x !== id);
-      memoriser(); garder('d-lois');
-    };
-  });
-  $('r-nombre').onchange = () => { reglages.nombre = Number($('r-nombre').value); memoriser(); };
-  $('r-affichage').onchange = () => { reglages.affichage = $('r-affichage').value; memoriser(); resultats(); };
-  $('generer').onclick = lancer;
-  $('rapide').onclick = () => { etat.rapide = true; afficher(); lancer(); };
 
   racine.querySelectorAll('[data-deck]').forEach((b) => {
-    b.onclick = () => { reglages = deckOutils.appliquer(reglages, decks.find((d) => d.nom === b.dataset.deck)); memoriser(); habiller(); garder('d-decks'); };
+    b.onclick = () => { reglages = deckOutils.appliquer(reglages, decks.find((d) => d.nom === b.dataset.deck)); memoriser(); habiller(); afficher(); if ($('d-decks')) $('d-decks').open = true; };
   });
   $('deck-garder').onclick = () => {
     const suite = deckOutils.enregistrer(decks, $('deck-nom').value, reglages);
@@ -201,7 +241,31 @@ function vueGrilles(racine) {
     decks = suite; deckOutils.sauver(stockage, decks); garder('d-decks');
   };
   if ($('deck-oter')) $('deck-oter').onclick = () => { decks = deckOutils.supprimer(decks, deckCourant); deckOutils.sauver(stockage, decks); garder('d-decks'); };
-  resultats();
+  brancherCommun(racine);
+}
+
+// La fresque d'une grille (bilan et chronologie) : branche la frise des années, le filtre de rang et le bouton Fermer.
+function brancherRejeu(fermer) {
+  if (!etat.rejeu || !$('rejeu')) return;
+  const redessiner = () => { $('chrono').innerHTML = htmlChronologie(etat.rejeu); brancherRejeu(fermer); };
+  $('rejeu').querySelectorAll('[data-annee]').forEach((b) => { b.onclick = () => { etat.rejeu.annee = etat.rejeu.annee === b.dataset.annee ? null : b.dataset.annee; redessiner(); }; });
+  if ($('chrono-rang')) $('chrono-rang').onchange = () => { etat.rejeu.rangMax = Number($('chrono-rang').value); redessiner(); };
+  if ($('chrono-tout')) $('chrono-tout').onclick = () => { etat.rejeu.annee = null; redessiner(); };
+  $('rejeu-fermer').onclick = fermer;
+}
+
+// Affiche la fresque d'une grille générée, sous la liste des grilles.
+function montrerFresque(grille) {
+  etat.rejeu = { grille: { numeros: grille.numeros, etoiles: grille.etoiles }, resultat: rejouer(grille, D), depuisGrilles: true };
+  dessinerFresque();
+  $('rejeu').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function dessinerFresque() {
+  const zone = $('fresque');
+  if (!zone) return;
+  zone.innerHTML = etat.rejeu?.depuisGrilles ? carteRejeu(etat.rejeu) : '';
+  brancherRejeu(() => { etat.rejeu = null; dessinerFresque(); });
 }
 
 function ajouterAuCarnet(grilles) {
@@ -240,6 +304,8 @@ function resultats() {
   zone.querySelectorAll('[data-carnet]').forEach((b) => {
     b.onclick = () => { b.textContent = ajouterAuCarnet([etat.grilles[Number(b.dataset.carnet)]]); b.disabled = true; };
   });
+  zone.querySelectorAll('[data-fresque]').forEach((b) => { b.onclick = () => montrerFresque(etat.grilles[Number(b.dataset.fresque)]); });
+  dessinerFresque();
 }
 
 // ---------- Carnet ----------
@@ -347,13 +413,7 @@ function vueCarnet(racine) {
   };
   racine.querySelectorAll('[data-rejouer]').forEach((bouton) => { bouton.onclick = () => montrerRejeu(carnet.find((e) => e.id === bouton.dataset.rejouer)); });
   // la chronologie se redessine seule quand on choisit une année ou un rang, sans faire sauter l'écran
-  const brancherChronologie = () => {
-    const redessiner = () => { $('chrono').innerHTML = htmlChronologie(etat.rejeu); brancherChronologie(); };
-    racine.querySelectorAll('[data-annee]').forEach((b) => { b.onclick = () => { etat.rejeu.annee = etat.rejeu.annee === b.dataset.annee ? null : b.dataset.annee; redessiner(); }; });
-    if ($('chrono-rang')) $('chrono-rang').onchange = () => { etat.rejeu.rangMax = Number($('chrono-rang').value); redessiner(); };
-    if ($('chrono-tout')) $('chrono-tout').onclick = () => { etat.rejeu.annee = null; redessiner(); };
-  };
-  if (etat.rejeu) { brancherChronologie(); $('rejeu-fermer').onclick = () => { etat.rejeu = null; afficher(); }; }
+  brancherRejeu(() => { etat.rejeu = null; afficher(); });
   racine.querySelectorAll('[data-oter]').forEach((bouton) => {
     bouton.onclick = () => { carnet = carnetOutils.supprimer(carnet, bouton.dataset.oter); carnetOutils.sauver(stockage, carnet); afficher(); };
   });
@@ -867,7 +927,11 @@ async function demarrer() {
   if (parametres.has('rapide') && reglages.mentionsAcceptees) { etat.vue = 'grilles'; etat.rapide = true; }
   if (apercu !== null && option === 'demo') {
     // démonstration pour les captures d'écran : rien n'est enregistré
-    if (vue === 'grilles') { reglages = valider({ ...reglages, fetiches: [7, 13], dosage: 'modere', affichage: parametres.get('affichage') || 'moderne' }); ctx = construireContexte(); }
+    if (vue === 'grilles') {
+      reglages = valider({ ...reglages, fetiches: [7, 13], dosage: 'modere', affichage: parametres.get('affichage') || 'moderne',
+        mode: parametres.get('mode'), lois: { gauss: true, entropie: true } });
+      ctx = construireContexte();
+    }
     if (vue === 'carnet') {
       const exemple = D.tirages[D.tirages.length - 1];
       carnet = [carnetOutils.preparer([exemple[1], exemple[2], 30, 40, 50], [exemple[6], 12], exemple[0]), carnetOutils.preparer([3, 17, 28, 41, 49], [2, 11], carnetOutils.prochainTirage(aujourdhui()))].filter((e) => typeof e !== 'string');
@@ -885,6 +949,7 @@ async function demarrer() {
   }
   afficher();
   if ((etat.rapide || (apercu !== null && vue === 'grilles' && option === 'demo'))) lancer();
+  if (apercu !== null && parametres.has('fresque') && etat.grilles.length) montrerFresque(etat.grilles[0]);
   if (!reglages.mentionsAcceptees) mentions(true);
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 }

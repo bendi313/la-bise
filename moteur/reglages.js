@@ -29,6 +29,7 @@ export const DEFAUTS = {
   fetiches: [],          // jusqu'à 3 numéros fétiches
   dosage: 'modere',
   affichage: 'moderne',  // ou 'ticket'
+  mode: 'classique',     // ou 'labo' : le Moteur Labo génère selon les lois du labo, sans les styles ni les fétiches
   lois: { gauss: false, corde: false, entropie: false },   // « Tirage Labo » : lois du labo appliquées à la génération
   loisPerso: [],         // identifiants des mesures de Mon Labo utilisées comme lois
   theme: 'matrix',
@@ -75,12 +76,23 @@ export function valider(r = {}) {
     fetiches: validerFetiches(r.fetiches),
     dosage: DOSAGES[r.dosage] ? r.dosage : DEFAUTS.dosage,
     affichage: AFFICHAGES.includes(r.affichage) ? r.affichage : DEFAUTS.affichage,
+    mode: r.mode === 'labo' ? 'labo' : 'classique',
     lois: Object.fromEntries(Object.keys(DEFAUTS.lois).map((cle) => [cle, r.lois?.[cle] === true])),
     loisPerso: (Array.isArray(r.loisPerso) ? r.loisPerso : []).filter((x) => typeof x === 'string').slice(0, 5),
     theme: typeof r.theme === 'string' ? r.theme : DEFAUTS.theme,
     perso, seuils,
     mentionsAcceptees: r.mentionsAcceptees === true,
   };
+}
+
+// Les réglages qui servent réellement à générer, selon le mode : les deux mondes ne se mélangent pas.
+// Jeu classique : styles, réglages fins et fétiches, sans aucune loi du labo.
+// Moteur Labo : uniquement les lois du labo cochées, sans style ni fétiche.
+export function effectifs(reglages) {
+  const aucunPoids = Object.fromEntries(Object.keys(DEFAUTS.poids).map((cle) => [cle, 0]));
+  return reglages.mode === 'labo'
+    ? { ...reglages, poids: aucunPoids, fetiches: [] }
+    : { ...reglages, lois: { ...DEFAUTS.lois }, loisPerso: [] };
 }
 
 // Le profil tout prêt qui correspond aux poids, ou « mixte » si l'utilisateur a fait son propre mélange.

@@ -6,7 +6,7 @@ const CLE_STOCKAGE = 'labise-decks';
 export const DECKS_MAX = 12;
 const NOM_MAX = 30;
 // Ce qu'un deck retient : le style, les réglages fins, les fétiches, le thème et l'affichage.
-const CHAMPS = ['poids', 'fenetreChaud', 'sommeMin', 'sommeMax', 'nombre', 'fetiches', 'dosage', 'affichage', 'theme', 'perso', 'seuils', 'lois', 'loisPerso'];
+const CHAMPS = ['poids', 'fenetreChaud', 'sommeMin', 'sommeMax', 'nombre', 'fetiches', 'dosage', 'affichage', 'theme', 'perso', 'seuils', 'lois', 'loisPerso', 'mode'];
 
 export const nomPropre = (nom) => String(nom ?? '').replace(/[<>&"']/g, '').replace(/\s+/g, ' ').trim().slice(0, NOM_MAX);
 
