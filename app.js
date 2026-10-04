@@ -2,12 +2,12 @@
 
 import { contexte, NOMS_CRITERES, LOIS } from './moteur/criteres.js';
 import * as monLabo from './moteur/monlabo.js';
-import { PROFILS, NOMBRES_DE_GRILLES, DOSAGES, FETICHES_MAX, charger, sauver, valider, validerFetiches, profilActif, effectifs } from './moteur/reglages.js';
+import { PROFILS, STYLES, MELANGE, DEFAUTS, NOMBRES_DE_GRILLES, DOSAGES, FETICHES_MAX, charger, sauver, valider, validerFetiches, effectifs } from './moteur/reglages.js';
 import { generer } from './moteur/generateur.js';
 import { versCSV, versJSON, versTicket, telecharger } from './moteur/export.js';
 import { rejouer } from './moteur/rejeu.js';
 import * as carnetOutils from './moteur/carnet.js';
-import * as deckOutils from './moteur/decks.js';
+import * as formuleOutils from './moteur/decks.js';
 import { THEMES, CATEGORIES, COULEURS_PERSO, appliquer, palette, couleurThermique } from './themes.js';
 import { ficheNumero, pourcent, jauge, enquetesDuNumero, bilanEnquetes, resumeFiche } from './labo.js';
 import { phraseProfil, phraseFetiches, definitionStyle, nombre, signe, dateFr, MENTIONS } from './textes.js';
@@ -31,7 +31,7 @@ const teinte = (t) => couleurThermique(t, pal, reglages.seuils);
 let D = null, ctx = null, pal = null, indexDates = null, dernierTirage = null;
 let stockage = localStorage;
 let reglages = charger(stockage);
-let decks = deckOutils.charger(stockage);
+let formules = formuleOutils.charger(stockage);
 let carnet = carnetOutils.charger(stockage);
 let labo = monLabo.charger(stockage);
 const etat = { vue: 'grilles', grilles: [], mode: 'chaud', choisi: null, sousVue: 'rejeu', rapide: false, rejeu: null, message: '',
@@ -77,14 +77,39 @@ function transparence() {
       ? lois.map((l) => `<p class="definition"><b>Loi du labo — ${l.nom} :</b> ${l.texte}</p><p class="transparence"><b>Ce que le laboratoire a mesuré.</b> ${l.mesure}</p>`).join('')
       : `<p class="definition"><b>Aucune loi cochée :</b> les grilles sont tirées au hasard pur.</p><p class="transparence"><b>Ce que le laboratoire a mesuré.</b> ${phraseProfil('hasard', D.rejeu)}</p>`;
   }
-  const actif = profilActif(R());
-  const bloc = (cle, nom) => `<p class="definition"><b>${nom} :</b> ${definitionStyle(cle, reglages)}</p><p class="transparence"><b>Ce que le laboratoire a mesuré.</b> ${phraseProfil(cle, D.rejeu)}</p>`;
-  const styles = actif !== 'mixte'
-    ? bloc(actif, PROFILS.find((p) => p.cle === actif).nom)
-    : '<p class="definition"><b>Mon mélange :</b> les grilles sont notées sur plusieurs styles à la fois, selon les poids des « Réglages fins ».</p>' +
-      Object.keys(NOMS_CRITERES).filter((c) => reglages.poids[c] > 0).map((c) => bloc(c, PROFILS.find((p) => p.cle === c).nom)).join('');
-  const fetiches = phraseFetiches(reglages.fetiches, D.populaire);
+  const r = R();
+  const bloc = (cle, nom) => `<p class="definition"><b>${nom} :</b> ${definitionStyle(cle, r)}</p><p class="transparence"><b>Ce que le laboratoire a mesuré.</b> ${phraseProfil(cle, D.rejeu)}</p>`;
+  let styles;
+  if (!estMelange()) styles = bloc(reglages.style, nomStyle(reglages.style));
+  else {
+    const actifs = Object.keys(NOMS_CRITERES).filter((c) => r.poids[c] > 0);
+    styles = actifs.length
+      ? actifs.map((c) => bloc(c, `${nomStyle(c)} — poids ${r.poids[c]}`)).join('')
+      : `<p class="definition"><b>Tous les poids sont à zéro :</b> les grilles sont tirées au hasard pur.</p><p class="transparence"><b>Ce que le laboratoire a mesuré.</b> ${phraseProfil('hasard', D.rejeu)}</p>`;
+  }
+  const fetiches = phraseFetiches(r.fetiches, D.populaire);
   return styles + (fetiches ? `<p class="transparence">${fetiches}</p>` : '');
+}
+
+const estMelange = () => !modeLabo() && reglages.style === MELANGE;
+const nomStyle = (cle) => (cle === MELANGE ? 'Mon mélange' : PROFILS.find((p) => p.cle === cle).nom);
+
+// La ligne de confirmation : ce qui est réellement actif pour la prochaine génération, et rien d'autre.
+function htmlRecap() {
+  const r = R(), n = loisCochees().length;
+  if (modeLabo()) return `<p class="recap"><b>Actif :</b> Moteur Labo · ${n ? `${n} loi${n > 1 ? 's' : ''} du labo` : 'aucune loi (hasard pur)'} · ni style, ni fétiche</p>`;
+  const fetiches = r.fetiches.length
+    ? `fétiche${r.fetiches.length > 1 ? 's' : ''} <b>${r.fetiches.join(', ')}</b> (dosage ${DOSAGES[r.dosage].nom} : ${DOSAGES[r.dosage].texte})` : 'aucun fétiche';
+  const formule = estMelange() ? formuleOutils.formuleActive(formules, reglages.melange) : null;
+  return `<p class="recap"><b>Actif :</b> ${nomStyle(reglages.style)}${formule ? ` (formule « ${formule} »)` : ''} · ${fetiches}</p>`;
+}
+
+// Les numéros fétiches et leur dosage. `v` : là où ils sont rangés (les styles purs et « Mon mélange » ont chacun les leurs).
+function htmlFetiches(v) {
+  return `<div class="ligne"><label>Jusqu'à ${FETICHES_MAX} numéros <input id="f-numeros" inputmode="numeric" placeholder="ex. 7 13 21" value="${v.fetiches.join(' ')}"></label></div>` +
+    `<div class="ligne"><label>Dosage <select id="f-dosage">${Object.entries(DOSAGES).map(([cle, d]) => `<option value="${cle}"${cle === v.dosage ? ' selected' : ''}>${d.nom} — chaque fétiche placé dans ${d.texte}</option>`).join('')}</select></label>` +
+    (v.fetiches.length ? '<button class="bouton" id="f-retirer">Retirer les fétiches</button>' : '') + '</div>' +
+    `<p class="discret">${v.fetiches.length ? `Fétiche${v.fetiches.length > 1 ? 's' : ''} actif${v.fetiches.length > 1 ? 's' : ''} : ${v.fetiches.join(', ')}.` : 'Aucun fétiche actif.'}</p>`;
 }
 
 // Les lois du labo cochées (Moteur Labo uniquement) : les trois lois intégrées et celles tirées de Mon Labo.
@@ -117,8 +142,8 @@ function carteGrille(g, i) {
     : `<div class="mesure"><span>Respect de vos réglages</span><b>${nombre(g.respect)} %</b></div><div class="jauge"><i style="width:${g.respect}%"></i></div>`;
   const detail = modeLabo()
     ? loisCochees().map((l) => `<tr><td>Loi : ${l.nom}</td><td>${nombre(100 * (g.notes.lois?.[l.cle] ?? 0))} %</td><td>poids 100</td></tr>`).join('')
-    : Object.keys(NOMS_CRITERES).map((c) => `<tr><td>${NOMS_CRITERES[c]}</td><td>${nombre(100 * g.notes[c])} %</td><td>poids ${reglages.poids[c]}</td></tr>`).join('') +
-      (g.notes.fetiches === null ? '' : `<tr><td>Fétiches</td><td>${nombre(100 * g.notes.fetiches)} %</td><td>poids ${DOSAGES[reglages.dosage].poids}</td></tr>`);
+    : Object.keys(NOMS_CRITERES).map((c) => `<tr><td>${NOMS_CRITERES[c]}</td><td>${nombre(100 * g.notes[c])} %</td><td>poids ${R().poids[c]}</td></tr>`).join('') +
+      (g.notes.fetiches === null ? '' : `<tr><td>Fétiches</td><td>${nombre(100 * g.notes.fetiches)} %</td><td>poids ${DOSAGES[R().dosage].poids}</td></tr>`);
   return `<div class="carte grille" style="animation-delay:${Math.min(i, 12) * 60}ms">${boulesGrille(g)}${respect}` +
     `<div class="mesure"><span>Effet de partage estimé</span><b>${signe(g.partage.gain, 1)} % de gain si elle sort</b></div>` +
     `<details><summary>Détail</summary>${detail ? `<table>${detail}</table>` : ''}` +
@@ -135,13 +160,11 @@ function lancer() {
 
 function nomDuStyle() {
   if (modeLabo()) { const n = loisCochees().length; return `Moteur Labo, ${n ? `${n} loi${n > 1 ? 's' : ''}` : 'aucune loi'}`; }
-  const actif = profilActif(R());
-  return actif === 'mixte' ? 'Mon mélange' : PROFILS.find((p) => p.cle === actif).nom;
+  return nomStyle(reglages.style);
 }
 
 function vueRapide(racine) {
-  racine.innerHTML = `<div class="carte"><h2>Mode rapide</h2><p class="discret">${nomDuStyle()} · ${pluriel(reglages.nombre, 'grille')}` +
-    (!modeLabo() && reglages.fetiches.length ? ` · fétiches ${reglages.fetiches.join(', ')}` : '') + `</p>${transparence()}` +
+  racine.innerHTML = `<div class="carte"><h2>Mode rapide</h2><p class="discret">${nomDuStyle()} · ${pluriel(reglages.nombre, 'grille')}</p>${htmlRecap()}${transparence()}` +
     '<button class="bouton principal" id="generer">GÉNÉRER</button>' +
     '<div class="ligne"><button class="bouton" id="quitter-rapide">Quitter le mode rapide</button></div></div><div id="resultats"></div><div id="fresque"></div>';
   $('generer').onclick = lancer;
@@ -200,47 +223,68 @@ function vueGrillesLabo(racine) {
 function vueGrilles(racine) {
   if (etat.rapide) { vueRapide(racine); return; }
   if (modeLabo()) { vueGrillesLabo(racine); return; }
-  const actif = profilActif(R()), deckCourant = deckOutils.deckActif(decks, reglages);
-  racine.innerHTML = htmlBascule() +
+  const melange = estMelange(), m = reglages.melange;
+  const formuleCourante = melange ? formuleOutils.formuleActive(formules, m) : null;
+  const entete = htmlBascule() +
     '<div class="carte"><div class="entete"><h2>Mon style de jeu</h2><button class="bouton" id="rapide">⚡ Mode rapide</button></div>' +
-    '<div class="puces">' + PROFILS.map((p) => `<button class="puce${p.cle === actif ? ' actif' : ''}" data-profil="${p.cle}">${p.nom}</button>`).join('') +
-    (actif === 'mixte' ? '<button class="puce actif">Mon mélange</button>' : '') + '</div>' + transparence() +
+    '<div class="puces">' + STYLES.map((cle) => `<button class="puce${cle === reglages.style ? ' actif' : ''}" data-style="${cle}">${nomStyle(cle)}</button>`).join('') + '</div>' +
+    htmlRecap();
 
-    '<details id="d-decks"><summary>Mes decks' + (deckCourant ? ` — ${deckCourant}` : '') + '</summary>' +
-    (decks.length ? '<div class="puces">' + decks.map((d) => `<button class="puce${d.nom === deckCourant ? ' actif' : ''}" data-deck="${d.nom}">${d.nom}</button>`).join('') + '</div>'
-      : '<p class="discret">Un deck garde toute la configuration en cours (mode, style, réglages fins, fétiches, lois, thème, affichage) sous un nom.</p>') +
-    `<div class="ligne"><input id="deck-nom" maxlength="30" placeholder="Nom du deck" value="${deckCourant ?? ''}"><button class="bouton" id="deck-garder">Enregistrer</button>` +
-    (deckCourant ? '<button class="bouton" id="deck-oter">Supprimer</button>' : '') + '</div><p class="discret" id="deck-message"></p></details>' +
+  if (!melange) {
+    // Un style pur : son critère seul, sans aucun réglage fin. Le seul réglage possible : les numéros fétiches.
+    racine.innerHTML = entete + transparence() +
+      '<h3>Numéros fétiches</h3>' +
+      '<p class="discret">C\'est le seul réglage d\'un style prédéfini. Ces fétiches valent pour les cinq styles prédéfinis ; « Mon mélange » a les siens.</p>' +
+      htmlFetiches(reglages) + htmlNombreEtAffichage() + '</div><div id="resultats"></div><div id="fresque"></div>';
+  } else {
+    racine.innerHTML = entete +
+      '<p class="definition"><b>Mon mélange :</b> le seul endroit avec des réglages fins. Vous dosez vous-même les quatre critères ; ce que vous réglez ici ne touche jamais les cinq styles prédéfinis.</p>' +
+      '<h3>Mes formules</h3>' +
+      (formules.length
+        ? `<div class="ligne"><label>Charger <select id="formule-choix"><option value="">— choisir une formule —</option>${formules.map((f) => `<option${f.nom === formuleCourante ? ' selected' : ''}>${f.nom}</option>`).join('')}</select></label></div>`
+        : '<p class="discret">Aucune formule enregistrée. Réglez les curseurs ci-dessous, donnez un nom, puis enregistrez.</p>') +
+      `<div class="ligne"><input id="formule-nom" maxlength="30" placeholder="Nom de la formule" value="${formuleCourante ?? ''}"><button class="bouton" id="formule-garder">Enregistrer cette formule</button>` +
+      (formuleCourante ? '<button class="bouton" id="formule-oter">Supprimer</button>' : '') + '</div>' +
+      `<p class="discret" id="formule-message">${formuleCourante ? `Formule chargée : « ${formuleCourante} ».` : (formules.length ? 'Ces réglages ne correspondent à aucune formule enregistrée.' : '')}</p>` +
+      '<h3>Réglages fins</h3>' +
+      Object.keys(NOMS_CRITERES).map((c) => `<div class="curseur"><span>${NOMS_CRITERES[c]}</span><input type="range" min="0" max="100" step="5" value="${m.poids[c]}" data-poids="${c}"><span>${m.poids[c]}</span></div>`).join('') +
+      `<div class="ligne"><label>« Chaud » sur les <input type="number" id="r-fenetre" min="5" max="200" value="${m.fenetreChaud}"> derniers tirages</label></div>` +
+      `<div class="ligne"><label>Somme entre <input type="number" id="r-min" min="15" max="240" value="${m.sommeMin}"> et <input type="number" id="r-max" min="15" max="240" value="${m.sommeMax}"></label></div>` +
+      '<h3>Numéros fétiches de Mon mélange</h3>' + htmlFetiches(m) +
+      transparence() + htmlNombreEtAffichage() + '</div><div id="resultats"></div><div id="fresque"></div>';
+  }
 
-    '<details id="d-fins"><summary>Réglages fins</summary>' +
-    Object.keys(NOMS_CRITERES).map((c) => `<div class="curseur"><span>${NOMS_CRITERES[c]}</span><input type="range" min="0" max="100" step="5" value="${reglages.poids[c]}" data-poids="${c}"><span>${reglages.poids[c]}</span></div>`).join('') +
-    `<div class="ligne"><label>« Chaud » sur les <input type="number" id="r-fenetre" min="5" max="200" value="${reglages.fenetreChaud}"> derniers tirages</label></div>` +
-    `<div class="ligne"><label>Somme entre <input type="number" id="r-min" min="15" max="240" value="${reglages.sommeMin}"> et <input type="number" id="r-max" min="15" max="240" value="${reglages.sommeMax}"></label></div>` +
-    `<h3>Numéros fétiches</h3><div class="ligne"><label>Jusqu'à ${FETICHES_MAX} numéros <input id="r-fetiches" inputmode="numeric" placeholder="ex. 7 13 21" value="${reglages.fetiches.join(' ')}"></label></div>` +
-    `<div class="ligne"><label>Dosage <select id="r-dosage">${Object.entries(DOSAGES).map(([cle, d]) => `<option value="${cle}"${cle === reglages.dosage ? ' selected' : ''}>${d.nom} — ${d.texte}</option>`).join('')}</select></label></div>` +
-    '</details>' + htmlNombreEtAffichage() + '</div><div id="resultats"></div><div id="fresque"></div>';
-
-  const garder = (...ouverts) => { afficher(); ouverts.forEach((id) => { $(id).open = true; }); };
-  racine.querySelectorAll('[data-profil]').forEach((b) => {
-    b.onclick = () => { reglages.poids = { ...PROFILS.find((p) => p.cle === b.dataset.profil).poids }; memoriser(); afficher(); };
+  // Changer de style remet l'écran à zéro : plus de grilles ni de fresque de l'ancien style.
+  racine.querySelectorAll('[data-style]').forEach((b) => {
+    b.onclick = () => { reglages.style = b.dataset.style; etat.grilles = []; etat.rejeu = null; memoriser(); afficher(); };
   });
-  racine.querySelectorAll('[data-poids]').forEach((c) => {
-    c.oninput = () => { c.nextElementSibling.textContent = c.value; };
-    c.onchange = () => { reglages.poids[c.dataset.poids] = Number(c.value); memoriser(); garder('d-fins'); };
-  });
-  const champ = (id, cle, lireValeur = (v) => Number(v)) => { $(id).onchange = () => { reglages[cle] = lireValeur($(id).value); memoriser(); garder('d-fins'); }; };
-  champ('r-fenetre', 'fenetreChaud'); champ('r-min', 'sommeMin'); champ('r-max', 'sommeMax');
-  champ('r-fetiches', 'fetiches', (v) => validerFetiches(lireListe(v))); champ('r-dosage', 'dosage', (v) => v);
+  // Les fétiches : ceux des styles prédéfinis ou ceux de Mon mélange, jamais les deux à la fois.
+  const cible = melange ? reglages.melange : reglages;
+  const apresReglage = () => { etat.grilles = []; etat.rejeu = null; memoriser(); afficher(); };
+  $('f-numeros').onchange = () => { cible.fetiches = validerFetiches(lireListe($('f-numeros').value)); apresReglage(); };
+  $('f-dosage').onchange = () => { cible.dosage = $('f-dosage').value; apresReglage(); };
+  if ($('f-retirer')) $('f-retirer').onclick = () => { cible.fetiches = []; apresReglage(); };
 
-  racine.querySelectorAll('[data-deck]').forEach((b) => {
-    b.onclick = () => { reglages = deckOutils.appliquer(reglages, decks.find((d) => d.nom === b.dataset.deck)); memoriser(); habiller(); afficher(); if ($('d-decks')) $('d-decks').open = true; };
-  });
-  $('deck-garder').onclick = () => {
-    const suite = deckOutils.enregistrer(decks, $('deck-nom').value, reglages);
-    if (typeof suite === 'string') { $('deck-message').textContent = suite; return; }
-    decks = suite; deckOutils.sauver(stockage, decks); garder('d-decks');
-  };
-  if ($('deck-oter')) $('deck-oter').onclick = () => { decks = deckOutils.supprimer(decks, deckCourant); deckOutils.sauver(stockage, decks); garder('d-decks'); };
+  if (melange) {
+    racine.querySelectorAll('[data-poids]').forEach((c) => {
+      c.oninput = () => { c.nextElementSibling.textContent = c.value; };
+      c.onchange = () => { reglages.melange.poids[c.dataset.poids] = Number(c.value); apresReglage(); };
+    });
+    const champ = (id, cle) => { $(id).onchange = () => { reglages.melange[cle] = Number($(id).value); apresReglage(); }; };
+    champ('r-fenetre', 'fenetreChaud'); champ('r-min', 'sommeMin'); champ('r-max', 'sommeMax');
+    if ($('formule-choix')) {
+      $('formule-choix').onchange = () => {
+        const formule = formules.find((f) => f.nom === $('formule-choix').value);
+        if (formule) { reglages = formuleOutils.appliquer(reglages, formule); apresReglage(); }
+      };
+    }
+    $('formule-garder').onclick = () => {
+      const suite = formuleOutils.enregistrer(formules, $('formule-nom').value, reglages.melange);
+      if (typeof suite === 'string') { $('formule-message').textContent = suite; return; }
+      formules = suite; formuleOutils.sauver(stockage, formules); afficher();
+    };
+    if ($('formule-oter')) $('formule-oter').onclick = () => { formules = formuleOutils.supprimer(formules, formuleCourante); formuleOutils.sauver(stockage, formules); afficher(); };
+  }
   brancherCommun(racine);
 }
 
@@ -511,7 +555,7 @@ function ficheHtml(n) {
     `<div class="mesure"><span>Sorties depuis 2004</span><b>${f.sorties} (attendu ${nombre(f.attendu, 1)})</b></div>` +
     `<div class="mesure"><span>Classement par nombre de sorties</span><b>${rangDe(tout.sortiesN, n - 1)}e sur 50</b></div>` +
     `<div class="mesure"><span>Depuis septembre 2016 (règle actuelle)</span><b>${f.regleActuelle.sorties} (attendu ${nombre(f.regleActuelle.tirages / 10, 1)})</b></div>` +
-    `<div class="mesure"><span>Sur les ${reglages.fenetreChaud} derniers tirages</span><b>${ctx.stats.chaudN[n - 1]} (attendu ${nombre(reglages.fenetreChaud / 10, 1)})</b></div>` +
+    `<div class="mesure"><span>Sur les ${R().fenetreChaud} derniers tirages</span><b>${ctx.stats.chaudN[n - 1]} (attendu ${nombre(R().fenetreChaud / 10, 1)})</b></div>` +
     `<div class="mesure"><span>Écart moyen entre deux sorties</span><b>${nombre(f.ecartMoyen, 1)} tirages (attendu 10)</b></div>` +
     `<div class="mesure"><span>Classement « joué par la foule »</span><b>${rangDe(populaires, n - 1)}e sur 50</b></div>` +
     `<div class="mesure"><span>Dernière sortie</span><b>${f.derniereSortie ? dateFr(f.derniereSortie) : 'jamais'} — il y a ${pluriel(f.retard, 'tirage')}</b></div>` +
@@ -533,7 +577,7 @@ function htmlPlateau() {
   const [cn, ce] = chaleurs(etat.mode), m = MODES[etat.mode], s = reglages.seuils;
   return `<div class="echelle" style="background:linear-gradient(90deg, var(--froid) ${s.froid}%, var(--chaud) ${s.chaud}%)"></div>` +
     `<div class="echelle-textes legende-filtre"><span>${m.froid}</span><span>${m.chaud}</span></div>` +
-    (etat.mode === 'chaud' ? `<p class="discret">Sur les ${reglages.fenetreChaud} derniers tirages.</p>` : '') +
+    (etat.mode === 'chaud' ? `<p class="discret">Sur les ${R().fenetreChaud} derniers tirages.</p>` : '') +
     `<div class="plateau" style="margin-top:10px">${cn.map((c, i) => `<button class="boule${etat.choisi === i + 1 ? ' choisi' : ''}" style="--t:${teinte(c)}" data-numero="${i + 1}">${i + 1}</button>`).join('')}</div>` +
     `<p class="legende-filtre" style="margin:12px 0 4px">Les 12 étoiles</p>` +
     `<div class="rangee-etoiles">${ce.map((c, i) => `<span class="boule etoile" style="--t:${teinte(c)}">${i + 1}</span>`).join('')}</div>`;
@@ -666,7 +710,7 @@ function htmlRejeu() {
     '<li>Seul le partage est réel : des numéros peu joués font toucher davantage <i>quand</i> on gagne.</li>' +
     `<li>D'après la règle du jeu, une grille quelconque gagne quelque chose ${nombre(R.part_gagnantes_theorique, 1)} fois sur 100, presque toujours un petit rang.</li></ul>` +
     '</div><div class="carte"><h2>Les cinq styles, un par un</h2>' +
-    ordre.map((c) => `<p class="definition"><b>${noms[c]} :</b> ${definitionStyle(c, reglages)}</p><p class="transparence"><b>Ce que le laboratoire a mesuré.</b> ${phraseProfil(c, R)}</p>`).join('') + '</div>' +
+    ordre.map((c) => `<p class="definition"><b>${noms[c]} :</b> ${definitionStyle(c, DEFAUTS)}</p><p class="transparence"><b>Ce que le laboratoire a mesuré.</b> ${phraseProfil(c, R)}</p>`).join('') + '</div>' +
     '<div class="carte"><h2>Le laboratoire complet</h2><p>Tous les tests, période par période : fréquences, retards, sommes, paires, ordre de sortie, mardi contre vendredi, partage des gains.</p>' +
     '<p><a href="laboratoire.html">Ouvrir le laboratoire</a></p>' +
     `<p class="discret">Données : ${nombre(D.tirages.length)} tirages, du ${dateFr(D.tirages[0][0])} au ${dateFr(dernierTirage)}.</p></div>`;
@@ -859,8 +903,8 @@ function vueReglages(racine) {
     `<div class="curseur"><span>Lueur néon</span><input type="range" id="p-lueur" min="0" max="2" step="0.1" value="${pal.lueur}"><span id="p-lueur-v">${nombre(pal.lueur, 1)}</span></div>` +
     `<div id="apercu">${htmlApercu()}</div>` +
     '<div class="ligne"><button class="bouton" id="p-defaut">Revenir aux couleurs du thème</button></div>' +
-    '<p class="discret">Les seuils du dégradé froid → chaud se règlent dans l\'onglet Numéros. Un deck enregistre aussi vos couleurs.</p></div>' +
-    '<div class="carte"><h2>À propos</h2><p>La Bise fonctionne sans connexion une fois installée. Vos réglages, vos decks et votre carnet restent sur cet appareil ; rien n\'est envoyé.</p>' +
+    '<p class="discret">Les seuils du dégradé froid → chaud se règlent dans l\'onglet Numéros.</p></div>' +
+    '<div class="carte"><h2>À propos</h2><p>La Bise fonctionne sans connexion une fois installée. Vos réglages, vos formules, vos mesures et votre carnet restent sur cet appareil ; rien n\'est envoyé.</p>' +
     `<p class="discret">Données du ${dateFr(D.genere_le)}.</p><div class="ligne"><button class="bouton" id="p-mentions">Mentions légales et prévention</button></div></div>`;
   racine.querySelectorAll('[data-theme-choix]').forEach((b) => {
     b.onclick = () => { reglages.theme = b.dataset.themeChoix; memoriser(); habiller(); afficher(); };
@@ -929,7 +973,7 @@ async function demarrer() {
     // démonstration pour les captures d'écran : rien n'est enregistré
     if (vue === 'grilles') {
       reglages = valider({ ...reglages, fetiches: [7, 13], dosage: 'modere', affichage: parametres.get('affichage') || 'moderne',
-        mode: parametres.get('mode'), lois: { gauss: true, entropie: true } });
+        mode: parametres.get('mode'), lois: { gauss: true, entropie: true }, style: parametres.get('style') || reglages.style });
       ctx = construireContexte();
     }
     if (vue === 'carnet') {

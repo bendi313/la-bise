@@ -141,6 +141,8 @@ th { color: var(--texte2); font-weight: 400; }
 .famille-boulier { --famille: var(--accent2); }
 .famille-experiences { --famille: var(--chaud); }
 .famille-monlabo { --famille: var(--accent); }
+/* La ligne de confirmation : ce qui est actif pour la prochaine génération. */
+.recap { margin: 10px 0 0; padding: 8px 10px; border-radius: var(--rayon); font-size: 14px; border: 1px dashed var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 /* L'interrupteur des deux modes de génération, en haut de l'onglet Grilles. */
 .bascule { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: 0 0 12px; border: 1px solid var(--bord); border-radius: var(--rayon); overflow: hidden; }
 .bascule button { background: var(--surface); border: 0; padding: 10px 8px; cursor: pointer; color: var(--texte2); display: flex; flex-direction: column; gap: 2px; align-items: center; min-height: 56px; }

@@ -39,6 +39,11 @@ export const DEFAUTS = {
   mentionsAcceptees: false,
 };
 
+// Les six styles du jeu classique : cinq styles purs, et « Mon mélange », le seul qui a des réglages fins.
+export const MELANGE = 'melange';
+export const STYLES = [...PROFILS.map((p) => p.cle), MELANGE];
+const MELANGE_DEFAUT = { poids: { chaud: 0, froid: 0, harmonique: 50, antiFoule: 50 }, fenetreChaud: 20, sommeMin: 90, sommeMax: 160, fetiches: [], dosage: 'modere' };
+
 const COULEURS = Object.keys(DEFAUTS.perso).filter((c) => c !== 'lueur');
 const ECART_SEUILS = 10;              // les deux seuils restent séparés d'au moins 10 points
 
@@ -57,18 +62,40 @@ export function validerFetiches(liste) {
   return [...new Set(propres)].slice(0, FETICHES_MAX).sort((a, b) => a - b);
 }
 
+// Les réglages fins de « Mon mélange » (et d'une formule enregistrée) : poids des critères, fenêtre, somme, fétiches.
+export function validerMelange(m = {}, defaut = MELANGE_DEFAUT) {
+  const poids = {};
+  Object.keys(DEFAUTS.poids).forEach((cle) => { poids[cle] = borner(m?.poids?.[cle], 0, 100, defaut.poids[cle]); });
+  let sommeMin = borner(m?.sommeMin, 15, 240, defaut.sommeMin), sommeMax = borner(m?.sommeMax, 15, 240, defaut.sommeMax);
+  if (sommeMin > sommeMax) [sommeMin, sommeMax] = [sommeMax, sommeMin];
+  return { poids, fenetreChaud: borner(m?.fenetreChaud, 5, 200, defaut.fenetreChaud), sommeMin, sommeMax,
+    fetiches: validerFetiches(m?.fetiches), dosage: DOSAGES[m?.dosage] ? m.dosage : defaut.dosage };
+}
+
+const memesPoids = (a, b) => Object.keys(DEFAUTS.poids).every((c) => a[c] === b[c]);
+
 // Remet des réglages quelconques (anciens, incomplets, abîmés) dans les bornes.
 export function valider(r = {}) {
   const poids = {};
   Object.keys(DEFAUTS.poids).forEach((cle) => { poids[cle] = borner(r.poids?.[cle], 0, 100, DEFAUTS.poids[cle]); });
   let sommeMin = borner(r.sommeMin, 15, 240, DEFAUTS.sommeMin), sommeMax = borner(r.sommeMax, 15, 240, DEFAUTS.sommeMax);
   if (sommeMin > sommeMax) [sommeMin, sommeMax] = [sommeMax, sommeMin];
+  // Le style choisi. Des réglages d'une ancienne version n'en ont pas : on le retrouve d'après leurs poids,
+  // et un ancien mélange personnel devient le contenu de « Mon mélange ».
+  let style = STYLES.includes(r.style) ? r.style : null, melange = r.melange;
+  if (!style) {
+    const ancien = PROFILS.find((p) => memesPoids(p.poids, poids));
+    style = ancien ? ancien.cle : MELANGE;
+    if (!ancien && !melange) melange = { poids, fenetreChaud: r.fenetreChaud, sommeMin, sommeMax, fetiches: r.fetiches, dosage: r.dosage };
+  }
   const lueur = Number(r.perso?.lueur);
   const perso = Object.fromEntries(COULEURS.map((c) => [c, estCouleur(r.perso?.[c]) ? r.perso[c] : null]));
   perso.lueur = r.perso?.lueur === null || r.perso?.lueur === undefined || !Number.isFinite(lueur) ? null : Math.min(2, Math.max(0, lueur));
   const froid = borner(r.seuils?.froid, 0, 100 - ECART_SEUILS, DEFAUTS.seuils.froid);
   const seuils = { froid, chaud: Math.max(froid + ECART_SEUILS, borner(r.seuils?.chaud, 0, 100, DEFAUTS.seuils.chaud)) };
   return {
+    style, melange: validerMelange(melange),
+    // poids, fenêtre et somme « de base » : ce que le moteur reçoit ; `effectifs` les fixe d'après le style
     poids,
     fenetreChaud: borner(r.fenetreChaud, 5, 200, DEFAUTS.fenetreChaud),
     sommeMin, sommeMax,
@@ -85,14 +112,18 @@ export function valider(r = {}) {
   };
 }
 
-// Les réglages qui servent réellement à générer, selon le mode : les deux mondes ne se mélangent pas.
-// Jeu classique : styles, réglages fins et fétiches, sans aucune loi du labo.
-// Moteur Labo : uniquement les lois du labo cochées, sans style ni fétiche.
+// Les réglages qui servent réellement à générer. Rien ne déborde d'un monde sur l'autre :
+// - Moteur Labo : uniquement les lois du labo cochées, sans style ni fétiche ;
+// - un des cinq styles purs : son critère seul, avec les paramètres d'origine (fenêtre de 20 tirages, somme de 90 à 160)
+//   et, pour seul réglage, les numéros fétiches des styles purs ;
+// - « Mon mélange » : ses propres poids, sa fenêtre, sa plage de somme et ses propres fétiches.
 export function effectifs(reglages) {
   const aucunPoids = Object.fromEntries(Object.keys(DEFAUTS.poids).map((cle) => [cle, 0]));
-  return reglages.mode === 'labo'
-    ? { ...reglages, poids: aucunPoids, fetiches: [] }
-    : { ...reglages, lois: { ...DEFAUTS.lois }, loisPerso: [] };
+  if (reglages.mode === 'labo') return { ...reglages, poids: aucunPoids, fetiches: [] };
+  const classique = { ...reglages, lois: { ...DEFAUTS.lois }, loisPerso: [] };
+  if (reglages.style === MELANGE) return { ...classique, ...validerMelange(reglages.melange) };
+  const profil = PROFILS.find((p) => p.cle === reglages.style) || PROFILS.find((p) => p.cle === 'antiFoule');
+  return { ...classique, poids: { ...profil.poids }, fenetreChaud: DEFAUTS.fenetreChaud, sommeMin: DEFAUTS.sommeMin, sommeMax: DEFAUTS.sommeMax };
 }
 
 // Le profil tout prêt qui correspond aux poids, ou « mixte » si l'utilisateur a fait son propre mélange.
