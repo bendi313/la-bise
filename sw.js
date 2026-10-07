@@ -1,10 +1,10 @@
 // Fonctionnement hors connexion. Avec du réseau, on prend toujours la dernière version et on la garde ;
 // sans réseau, on ressort la copie gardée sur l'appareil.
-const CACHE = 'labise-v16';
+const CACHE = 'labise-v17';
 const COQUILLE = ['./', 'index.html', 'style.css', 'app.js', 'themes.js', 'labo.js', 'textes.js',
   'moteur/criteres.js', 'moteur/reglages.js', 'moteur/generateur.js', 'moteur/export.js',
-  'moteur/rejeu.js', 'moteur/carnet.js', 'moteur/decks.js', 'moteur/monlabo.js',
-  'manifest.webmanifest', 'icone-192.png', 'icone-512.png', 'donnees.json', 'laboratoire.html'];
+  'moteur/rejeu.js', 'moteur/carnet.js', 'moteur/decks.js', 'moteur/monlabo.js', 'moteur/jeu.js',
+  'manifest.webmanifest', 'icone-192.png', 'icone-512.png', 'donnees.json', 'donnees-lotto.json', 'laboratoire.html'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(COQUILLE)).then(() => self.skipWaiting()));

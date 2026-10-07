@@ -1,5 +1,7 @@
 // La fiche d'un numéro : ce que l'historique en dit. Description du passé, sans valeur de prévision.
-// tirages : [[date 'AAAA-MM-JJ', n1..n5, e1, e2], …] du plus ancien au plus récent.
+// tirages : [[date 'AAAA-MM-JJ', n1..n5, e1, e2], …] du plus ancien au plus récent ([date, n1..n6, bonus] au Lotto).
+
+import { JEU, numerosDe, bonusDe, jourDe, chancePct } from './moteur/jeu.js';
 
 const SAISONS = ['Hiver', 'Printemps', 'Été', 'Automne'];
 const saison = (mois) => SAISONS[Math.floor((mois % 12) / 3)];      // déc-fév, mars-mai, juin-août, sept-nov
@@ -10,38 +12,39 @@ function compteur(cles) {
 }
 
 export function ficheNumero(numero, tirages) {
-  const jours = compteur(['mardi', 'vendredi']), saisons = compteur(SAISONS), moities = compteur(['du 1 au 15', 'du 16 à la fin']);
-  const annees = new Map(), compagnons = Array(51).fill(0);
-  let sorties = 0, derniere = -1, plusLongue = 0, depuis = 0;
-  const regleActuelle = { sorties: 0, tirages: 0 };          // depuis le 27/09/2016 (12 étoiles)
+  const jours = compteur(JEU.nomsJours), saisons = compteur(SAISONS), moities = compteur(['du 1 au 15', 'du 16 à la fin']);
+  const annees = new Map(), compagnons = Array(JEU.boules + 1).fill(0);
+  let sorties = 0, derniere = -1, plusLongue = 0, depuis = 0, bonus = 0;
+  const regleActuelle = { sorties: 0, tirages: 0 };          // depuis le 27/09/2016 (12 étoiles) ; au Lotto, depuis le 26/05/2018 (9 rangs)
   tirages.forEach((t, i) => {
-    const sorti = t.slice(1, 6).includes(numero);
-    if (t[0] >= '2016-09-27') { regleActuelle.tirages++; if (sorti) regleActuelle.sorties++; }
+    const sorti = numerosDe(t).includes(numero);
+    if (bonusDe(t) === numero) bonus++;
+    if (t[0] >= JEU.regleActuelle) { regleActuelle.tirages++; if (sorti) regleActuelle.sorties++; }
     const annee = t[0].slice(0, 4), mois = Number(t[0].slice(5, 7)), jour = Number(t[0].slice(8, 10));
-    const cases = [jours[jourSemaine(t[0]) === 2 ? 'mardi' : 'vendredi'], saisons[saison(mois)], moities[jour <= 15 ? 'du 1 au 15' : 'du 16 à la fin']];
+    const cases = [jours[jourDe(t[0])], saisons[saison(mois)], moities[jour <= 15 ? 'du 1 au 15' : 'du 16 à la fin']];
     if (!annees.has(annee)) annees.set(annee, { annee, sorties: 0, tirages: 0 });
     cases.push(annees.get(annee));
     cases.forEach((c) => { c.tirages++; if (sorti) c.sorties++; });
     if (sorti) {
       sorties++; derniere = i; depuis = 0;
-      t.slice(1, 6).forEach((n) => { if (n !== numero) compagnons[n]++; });
+      numerosDe(t).forEach((n) => { if (n !== numero) compagnons[n]++; });
     } else {
       depuis++; plusLongue = Math.max(plusLongue, depuis);
     }
   });
   return {
     numero, sorties, tirages: tirages.length,
-    attendu: tirages.length / 10,                        // 5 numéros sur 50 : 1 chance sur 10 à chaque tirage
+    attendu: tirages.length * JEU.chance,                // 5 numéros sur 50 : 1 chance sur 10 à chaque tirage (Lotto : 6 sur 45)
     retard: derniere < 0 ? tirages.length : tirages.length - 1 - derniere,
     derniereSortie: derniere < 0 ? null : tirages[derniere][0],
     plusLongueAbsence: plusLongue,
-    ecartMoyen: sorties ? tirages.length / sorties : null,       // un numéro sort en moyenne tous les 10 tirages
-    regleActuelle,
+    ecartMoyen: sorties ? tirages.length / sorties : null,       // un numéro sort en moyenne tous les 10 tirages (7,5 au Lotto)
+    regleActuelle, bonus,
     jours, saisons, moities,
     annees: [...annees.values()],
-    // chaque autre numéro accompagne celui-ci dans 4 sorties sur 49 en moyenne
+    // chaque autre numéro accompagne celui-ci dans 4 sorties sur 49 en moyenne (5 sur 44 au Lotto)
     compagnons: compagnons.map((c, n) => [n, c]).filter((x) => x[0] > 0 && x[0] !== numero).sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, 5),
-    compagnonAttendu: (sorties * 4) / 49,
+    compagnonAttendu: sorties * JEU.compagnon,
   };
 }
 
@@ -55,34 +58,37 @@ const minuscule = (s) => s[0].toLowerCase() + s.slice(1);
 // l : la ligne du numéro dans le tableau détaillé ; c : { cas, fenetre, bas, haut, tirages, lignes }.
 export function phraseEnquete(n, cle, l, c) {
   const hasard = (unite = '', dec = 0) => (c.bas === undefined ? '' : `le hasard donne de ${fr(c.bas, dec)} à ${fr(c.haut, dec)}${unite} pour un numéro pris seul`);
+  // les repères de la règle du jeu : 10 % et 10 tirages à l'EuroMillions, 13,3 % et 7,5 tirages au Lotto
+  const pct = chancePct(), ecart = fr(JEU.ecartMoyen, Number.isInteger(JEU.ecartMoyen) ? 0 : 1), depuis = `depuis ${JEU.depuis}`;
+  const paireAttendue = c.nbTirages ? `environ ${fr(c.nbTirages * JEU.chancePaire)} fois` : `une fois tous les ${fr(Math.floor(1 / JEU.chancePaire))} tirages`;
   const speciales = {
-    ennemis: () => `Le numéro ${n} est sorti ${fois(l[1])} depuis 2004. Son partenaire le plus rare est le ${l[2]} (${fois(l[3])} ensemble) et le plus fréquent le ${l[4]} (${fois(l[5])}), ` +
-      `alors qu'une paire quelconque est attendue environ 16 fois (pour le partenaire le plus rare, ${hasard(' fois')}).`,
+    ennemis: () => `Le numéro ${n} est sorti ${fois(l[1])} ${depuis}. Son partenaire le plus rare est le ${l[2]} (${fois(l[3])} ensemble) et le plus fréquent le ${l[4]} (${fois(l[5])}), ` +
+      `alors qu'une paire quelconque est attendue ${paireAttendue} (pour le partenaire le plus rare, ${hasard(' fois')}).`,
     metronomes: () => `Le numéro ${n} est sorti ${l[1] + 1} fois de suite à exactement ${l[2]} tirage${l[2] > 1 ? 's' : ''} d'écart, à partir du ${l[3]} ` +
       `(soit ${l[1]} intervalle${l[1] > 1 ? 's' : ''} identique${l[1] > 1 ? 's' : ''} d'affilée ; ${hasard()}).`,
     alchimistes: () => `Sur ses ${fr(l[1])} sorties, le numéro ${n} a été ${fois(l[2])} la somme exacte de deux ou trois autres numéros du même tirage ` +
       `(${hasard(' fois')} ; les grands numéros le sont plus souvent, parce que plus de sommes y mènent).`,
-    fantome: () => `Le numéro ${n} est sorti ${fois(l[2])} juste après la sortie d'un de ses voisins (le ${[n - 1, n + 1].filter((x) => x >= 1 && x <= 50).join(' ou le ')}), ` +
-      `sur ${fr(l[1])} occasions (soit ${fr(l[3], 1)} % ; un tirage sans mémoire donne 10 %, et ${hasard(' %', 1)}).`,
+    fantome: () => `Le numéro ${n} est sorti ${fois(l[2])} juste après la sortie d'un de ses voisins (le ${[n - 1, n + 1].filter((x) => x >= 1 && x <= JEU.boules).join(' ou le ')}), ` +
+      `sur ${fr(l[1])} occasions (soit ${fr(l[3], 1)} % ; un tirage sans mémoire donne ${pct}, et ${hasard(' %', 1)}).`,
     eclipses: () => `La plus longue absence du numéro ${n} a duré ${fr(l[1])} tirages ${l[2] === 'en cours' ? 'et elle est toujours en cours' : `et s'est terminée le ${l[2]}`} ` +
-      `(un numéro sort en moyenne tous les 10 tirages ; pour la plus longue absence, ${hasard(' tirages')}).`,
+      `(un numéro sort en moyenne tous les ${ecart} tirages ; pour la plus longue absence, ${hasard(' tirages')}).`,
     dominos: () => `Sur ses ${fr(l[1])} sorties, le numéro ${n} a fait ${fois(l[2])} partie de trois numéros régulièrement espacés, comme 12-13-14 ou 8-16-24 ` +
       `(soit ${fr(l[3], 1)} % de ses sorties ; ${hasard(' fois')}).`,
     cometes: () => (l[2] === null ? `Le numéro ${n} n'a aucune paire sortie deux fois sur cette période.`
       : `La paire formée par le ${n} et le ${l[2]} est sortie le ${l[3]}, puis plus jamais ensemble avant le ${l[4]} : ${fr(l[1])} tirages d'attente ` +
-        `(une paire revient en moyenne tous les 122 tirages ; pour la plus longue attente, ${hasard(' tirages')}).`),
-    horloge: () => `Le numéro ${n} est sorti ${fois(l[1])} depuis 2004 ; ${l[2] === 'aucun' ? 'aucun autre numéro n\'a exactement ce total' : `à égalité exacte avec le ${String(l[2]).replace(/, /g, ', le ')}`} ` +
+        `(une paire revient en moyenne tous les ${fr(Math.floor(1 / JEU.chancePaire))} tirages ; pour la plus longue attente, ${hasard(' tirages')}).`),
+    horloge: () => `Le numéro ${n} est sorti ${fois(l[1])} ${depuis} ; ${l[2] === 'aucun' ? 'aucun autre numéro n\'a exactement ce total' : `à égalité exacte avec le ${String(l[2]).replace(/, /g, ', le ')}`} ` +
       `(${hasard(' sorties')}).`,
-    epoques: () => `Avant le 27/09/2016, le numéro ${n} sortait dans ${fr(l[1], 1)} % des tirages (${l[2]}e sur 50) ; depuis, dans ${fr(l[3], 1)} % (${l[4]}e sur 50), ` +
-      `soit un écart de ${l[5] > 0 ? '+' : ''}${fr(l[5], 1)} point${Math.abs(l[5]) >= 2 ? 's' : ''} (le hasard donne 10 % aux deux époques ; pour l'écart, ${hasard(' points', 1)}).`,
+    epoques: () => `Avant ${JEU.coupureNom}, le numéro ${n} sortait dans ${fr(l[1], 1)} % des tirages (${l[2]}e sur ${JEU.boules}) ; depuis, dans ${fr(l[3], 1)} % (${l[4]}e sur ${JEU.boules}), ` +
+      `soit un écart de ${l[5] > 0 ? '+' : ''}${fr(l[5], 1)} point${Math.abs(l[5]) >= 2 ? 's' : ''} (le hasard donne ${pct} aux deux époques ; pour l'écart, ${hasard(' points', 1)}).`,
     clandestin: () => `Sur ses ${fr(l[1])} sorties, le numéro ${n} est sorti ${fois(l[3])} avec le ${l[2]}, son compagnon le plus fréquent ` +
-      `(soit ${fr(l[4], 1)} % ; un compagnon quelconque l'accompagne environ 8 fois sur 100, et pour le plus fréquent ${hasard(' %', 1)}).`,
-    corde: () => `La corde du numéro ${n} est ${String(l[2]).split(' :')[0]} : ses 3 derniers écarts entre deux sorties font en moyenne ${fr(l[1] * 10, 1)} tirages, ` +
-      `soit une tension de ${fr(l[1], 2)} (10 tirages d'écart donnent une tension de 1 ; ${hasard('', 2)}). Une corde tendue ou détendue ne dit rien de la prochaine sortie.`,
+      `(soit ${fr(l[4], 1)} % ; un compagnon quelconque l'accompagne environ ${fr(100 * JEU.compagnon)} fois sur 100, et pour le plus fréquent ${hasard(' %', 1)}).`,
+    corde: () => `La corde du numéro ${n} est ${String(l[2]).split(' :')[0]} : ses 3 derniers écarts entre deux sorties font en moyenne ${fr(l[1] * JEU.ecartMoyen, 1)} tirages, ` +
+      `soit une tension de ${fr(l[1], 2)} (${ecart} tirages d'écart donnent une tension de 1 ; ${hasard('', 2)}). Une corde tendue ou détendue ne dit rien de la prochaine sortie.`,
     saisons: () => {
-      const noms = ['hiver', 'printemps', 'été', 'automne'], parts = l.slice(1, 5), meilleure = parts.indexOf(Math.max(...parts));
+      const parts = l.slice(1, 5), meilleure = parts.indexOf(Math.max(...parts));
       return `Le numéro ${n} est sorti dans ${fr(l[1], 1)} % des tirages d'hiver, ${fr(l[2], 1)} % de ceux du printemps, ${fr(l[3], 1)} % de ceux d'été et ${fr(l[4], 1)} % de ceux d'automne ; ` +
-        `sa meilleure saison est ${['l\'hiver', 'le printemps', 'l\'été', 'l\'automne'][meilleure]} (le hasard donne 10 % partout ; un écart de ${fr(l[5], 1)} points entre la meilleure et la moins bonne saison est courant).`;
+        `sa meilleure saison est ${['l\'hiver', 'le printemps', 'l\'été', 'l\'automne'][meilleure]} (le hasard donne ${pct} partout ; un écart de ${fr(l[5], 1)} points entre la meilleure et la moins bonne saison est courant).`;
     },
   };
   if (speciales[cle]) return speciales[cle]();
@@ -93,10 +99,12 @@ export function phraseEnquete(n, cle, l, c) {
       : `Le numéro ${n} n'a jamais été le numéro le plus sorti d'une année (${c.cas} années étudiées).`;
   }
   if (cle === 'cent_jours') {
+    const chance = JEU.k * 10 === JEU.boules ? '1 chance sur 10' : `${JEU.k} chances sur ${JEU.boules}`;
     return c.lignes.length
       ? `Le numéro ${n} est sorti au cap des 100 jours alors qu'il n'était pas encore sorti de l'année : ${c.lignes.map((a) => `le ${a[1]}`).join(', ')} ` +
-        `(${fois(c.lignes.length)} en ${c.cas} années ; un numéro pas encore sorti a, comme les autres, 1 chance sur 10 ce jour-là).`
-      : `Le numéro ${n} n'est jamais sorti au cap des 100 jours en étant encore absent de l'année (${c.cas} années étudiées ; en moyenne, seuls 2 ou 3 numéros sont encore absents à cette date).`;
+        `(${fois(c.lignes.length)} en ${c.cas} années ; un numéro pas encore sorti a, comme les autres, ${chance} ce jour-là).`
+      : `Le numéro ${n} n'est jamais sorti au cap des 100 jours en étant encore absent de l'année (${c.cas} années étudiées ; en moyenne, ` +
+        `${JEU.bonus ? 'moins d\'un numéro est encore absent' : 'seuls 2 ou 3 numéros sont encore absents'} à cette date).`;
   }
   if (cle === 'pyramide') {
     return c.lignes.length
@@ -105,9 +113,9 @@ export function phraseEnquete(n, cle, l, c) {
   }
   // enquêtes sur une fenêtre de dates : sorties du numéro sur les tirages de la fenêtre
   if (c.tirages) {
-    return `Le numéro ${n} est sorti ${fois(l[1])} lors des ${minuscule(c.fenetre)}, sur ${fr(c.tirages)} tirage${c.tirages > 1 ? 's à ces dates' : ' à cette date'} depuis 2004, ` +
-      `soit ${fr(l[2], 1)} % contre 10 % attendus par le hasard pur ` +
-      `(un numéro quelconque y est attendu ${fr(c.tirages / 10, 1)} fois, et le hasard donne de ${fr(c.bas)} à ${fr(c.haut)} sorties)` +
+    return `Le numéro ${n} est sorti ${fois(l[1])} lors des ${minuscule(c.fenetre)}, sur ${fr(c.tirages)} tirage${c.tirages > 1 ? 's à ces dates' : ' à cette date'} ${depuis}, ` +
+      `soit ${fr(l[2], 1)} % contre ${pct} attendus par le hasard pur ` +
+      `(un numéro quelconque y est attendu ${fr(c.tirages * JEU.chance, 1)} fois, et le hasard donne de ${fr(c.bas)} à ${fr(c.haut)} sorties)` +
       `${c.suivi ? ` ; il fait partie des numéros que cette enquête surveille` : ''}.`;
   }
   return '';
@@ -148,7 +156,7 @@ export function enquetesDuNumero(n, donnees) {
       liste.push({ ...base,
         faits: d.colonnes.map((c, i) => ({ t: c.t, v: ligne[i], dec: c.dec })).filter((_, i) => i > 0 && i !== iHors && i !== iSuivi),
         inhabituel, sens, suivi,
-        phrase: phraseEnquete(n, f.cle, ligne, { cas: f.n, fenetre: f.fenetre, tirages: d.tirages, suivi, bas: d.bas?.[rang], haut: d.haut?.[rang] }) + verdict(inhabituel, sens) });
+        phrase: phraseEnquete(n, f.cle, ligne, { cas: f.n, fenetre: f.fenetre, tirages: d.tirages, suivi, bas: d.bas?.[rang], haut: d.haut?.[rang], nbTirages: donnees.tirages?.length }) + verdict(inhabituel, sens) });
     } else if (f.cle === 'saint_sylvestre') {
       const annees = d.lignes.filter((l) => l[1].split(', ').includes(String(n)));
       liste.push({ ...base, inhabituel: null, sens: '', suivi: false, phrase: phraseEnquete(n, f.cle, null, { cas: d.lignes.length, lignes: annees }), faits: annees.length

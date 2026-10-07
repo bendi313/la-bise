@@ -153,6 +153,15 @@ th { color: var(--texte2); font-weight: 400; }
 .famille-monlabo { --famille: var(--accent); }
 /* La ligne de confirmation : ce qui est actif pour la prochaine génération. */
 .recap { margin: 10px 0 0; padding: 8px 10px; border-radius: var(--rayon); font-size: 14px; border: 1px dashed var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+/* Les deux grands onglets du haut : EuroMillions et Lotto belge, deux mondes séparés. */
+.jeux { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 10px 0 2px; }
+.jeux button { background: var(--surface); border: 1px solid var(--bord); border-radius: var(--rayon); padding: 10px 6px; min-height: 48px; cursor: pointer;
+  color: var(--texte2); font: inherit; font-size: 16px; font-weight: 700; letter-spacing: 0.5px; }
+.jeux button.actif { background: var(--accent); border-color: var(--accent); color: var(--sur-accent); box-shadow: 0 0 calc(12px * var(--lueur)) var(--accent); }
+body.rapide .jeux { display: none; }
+/* Lotto : le numéro bonus d'un vrai tirage, montré à part. */
+.boule.bonus { border-style: dashed; border-width: 3px; }
+.plus-bonus { margin-left: 4px; }
 /* L'interrupteur des deux modes de génération, en haut de l'onglet Grilles. */
 .bascule { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: 0 0 12px; border: 1px solid var(--bord); border-radius: var(--rayon); overflow: hidden; }
 .bascule button { background: var(--surface); border: 0; padding: 10px 8px; cursor: pointer; color: var(--texte2); display: flex; flex-direction: column; gap: 2px; align-items: center; min-height: 56px; }

@@ -4,29 +4,37 @@
 
 import { lire, ecrire } from './reglages.js';
 import { nbEtoilesEnJeu } from './rejeu.js';
+import { JEU, surChangement, numerosDe, jourDe } from './jeu.js';
 
-const numeros = (t) => t.slice(1, 6);
+const numeros = (t) => numerosDe(t);
 const compter = (t, test) => numeros(t).filter(test).length;
 
-// Ce qu'on sait mesurer sur un tirage ou sur une grille. t = [date, n1..n5, e1, e2], numéros dans l'ordre croissant.
-export const PROPRIETES = {
-  pairs: { nom: 'numéros pairs', unite: 'nombre de numéros pairs', max: 5, f: (t) => compter(t, (n) => n % 2 === 0) },
-  impairs: { nom: 'numéros impairs', unite: 'nombre de numéros impairs', max: 5, f: (t) => compter(t, (n) => n % 2 === 1) },
-  petits: { nom: 'numéros de 1 à 25', unite: 'nombre de numéros de 1 à 25', max: 5, f: (t) => compter(t, (n) => n <= 25) },
-  grands: { nom: 'numéros de 26 à 50', unite: 'nombre de numéros de 26 à 50', max: 5, f: (t) => compter(t, (n) => n >= 26) },
-  dates: { nom: 'numéros de 1 à 31 (les « dates »)', unite: 'nombre de numéros de 1 à 31', max: 5, f: (t) => compter(t, (n) => n <= 31) },
-  suites: { nom: 'numéros qui se suivent', unite: 'nombre de suites (comme 14-15)', max: 4, f: (t) => numeros(t).filter((n, i, l) => i > 0 && n - l[i - 1] === 1).length },
-  dizaines: { nom: 'dizaines différentes', unite: 'nombre de dizaines différentes', max: 5, f: (t) => new Set(numeros(t).map((n) => Math.floor((n - 1) / 10))).size },
-  somme: { nom: 'somme des 5 numéros', unite: 'somme des 5 numéros', max: 240, f: (t) => numeros(t).reduce((a, b) => a + b, 0) },
-  etendue: { nom: 'écart entre le plus grand et le plus petit numéro', unite: 'écart entre le plus grand et le plus petit numéro', max: 49, f: (t) => t[5] - t[1] },
-  somme_etoiles: { nom: 'somme des 2 étoiles', unite: 'somme des 2 étoiles', max: 23, f: (t) => t[6] + t[7] },
-  numero: { nom: 'le numéro', unite: 'présence du numéro', parametre: 50, max: 1, f: (t, p) => (numeros(t).includes(p) ? 1 : 0) },
-  etoile: { nom: 'l\'étoile', unite: 'présence de l\'étoile', parametre: 12, max: 1, f: (t, p) => (t[6] === p || t[7] === p ? 1 : 0) },
-};
+// Ce qu'on sait mesurer sur un tirage ou sur une grille. t = [date, n1..n5, e1, e2] (Lotto : [date, n1..n6, bonus]),
+// numéros dans l'ordre croissant. La liste suit le jeu choisi : les étoiles pour l'EuroMillions, le bonus pour le Lotto.
+export let PROPRIETES = {};
+function construire(j) {
+  const k = j.k, n = j.boules, moitie = Math.floor(n / 2);
+  const p = {
+    pairs: { nom: 'numéros pairs', unite: 'nombre de numéros pairs', max: k, f: (t) => compter(t, (x) => x % 2 === 0) },
+    impairs: { nom: 'numéros impairs', unite: 'nombre de numéros impairs', max: k, f: (t) => compter(t, (x) => x % 2 === 1) },
+    petits: { nom: `numéros de 1 à ${moitie}`, unite: `nombre de numéros de 1 à ${moitie}`, max: k, f: (t) => compter(t, (x) => x <= moitie) },
+    grands: { nom: `numéros de ${moitie + 1} à ${n}`, unite: `nombre de numéros de ${moitie + 1} à ${n}`, max: k, f: (t) => compter(t, (x) => x > moitie) },
+    dates: { nom: 'numéros de 1 à 31 (les « dates »)', unite: 'nombre de numéros de 1 à 31', max: k, f: (t) => compter(t, (x) => x <= 31) },
+    suites: { nom: 'numéros qui se suivent', unite: 'nombre de suites (comme 14-15)', max: k - 1, f: (t) => numeros(t).filter((x, i, l) => i > 0 && x - l[i - 1] === 1).length },
+    dizaines: { nom: 'dizaines différentes', unite: 'nombre de dizaines différentes', max: Math.min(k, Math.ceil(n / 10)), f: (t) => new Set(numeros(t).map((x) => Math.floor((x - 1) / 10))).size },
+    somme: { nom: `somme des ${k} numéros`, unite: `somme des ${k} numéros`, max: j.sommeBornes[1], f: (t) => numeros(t).reduce((a, b) => a + b, 0) },
+    etendue: { nom: 'écart entre le plus grand et le plus petit numéro', unite: 'écart entre le plus grand et le plus petit numéro', max: n - 1, f: (t) => t[k] - t[1] },
+  };
+  if (j.nbEtoiles) p.somme_etoiles = { nom: 'somme des 2 étoiles', unite: 'somme des 2 étoiles', max: 23, f: (t) => t[6] + t[7] };
+  p.numero = { nom: 'le numéro', unite: 'présence du numéro', parametre: n, max: 1, f: (t, x) => (numeros(t).includes(x) ? 1 : 0) };
+  if (j.nbEtoiles) p.etoile = { nom: 'l\'étoile', unite: 'présence de l\'étoile', parametre: 12, max: 1, f: (t, x) => (t[6] === x || t[7] === x ? 1 : 0) };
+  else if (j.bonus) p.bonus = { nom: 'le bonus', unite: 'bonus égal au numéro', parametre: n, max: 1, f: (t, x) => (t[k + 1] === x ? 1 : 0) };
+  return p;
+}
+surChangement((j) => { PROPRIETES = construire(j); });
 
 export const OPERATEURS = { '>=': 'au moins', '<=': 'au plus', '=': 'exactement' };
 const comparer = (v, op, val) => (op === '>=' ? v >= val : op === '<=' ? v <= val : v === val);
-const jourSemaine = (date) => new Date(date + 'T12:00:00Z').getUTCDay();
 
 // ---------- Comprendre la question ----------
 
@@ -36,12 +44,14 @@ const sansAccent = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '
 function trouverPropriete(texte) {
   const regles = [
     [/somme[^,;.]*etoile|etoiles?[^,;.]*somme/, 'somme_etoiles'], [/etoile\s*(?:numero\s*|n\s*)?(\d{1,2})/, 'etoile'],
+    [/bonus\s*(?:numero\s*|n\s*|est\s*(?:le\s*)?)?(\d{1,2})/, 'bonus'],
     [/impair/, 'impairs'], [/\bpair/, 'pairs'], [/somme|total/, 'somme'], [/se suiv|consecuti|\bsuites?\b/, 'suites'],
     [/etendue|plus grand et le plus petit|dispers/, 'etendue'], [/dizaine/, 'dizaines'],
-    [/\bdates?\b|anniversaire|1 a 31/, 'dates'], [/petits?\b|1 a 25/, 'petits'], [/grands?\b|26 a 50/, 'grands'],
+    [/\bdates?\b|anniversaire|1 a 31/, 'dates'], [/petits?\b|1 a 2[25]\b/, 'petits'], [/grands?\b|2[36] a (?:45|50)/, 'grands'],
     [/(?:numero|\ble|\bdu)\s+(\d{1,2})\b/, 'numero'],
   ];
   for (const [motif, prop] of regles) {
+    if (!PROPRIETES[prop]) continue;          // pas d'étoile au Lotto, pas de bonus à l'EuroMillions
     const m = texte.match(motif);
     if (m) return { prop, param: PROPRIETES[prop].parametre ? Number(m[1]) : null };
   }
@@ -50,7 +60,7 @@ function trouverPropriete(texte) {
 
 // Trouve « au moins 4 », « plus de 150 », « exactement 2 », ou un simple « 4 » collé à la propriété.
 function trouverSeuil(texte, prop, param) {
-  const sansParam = param ? texte.replace(new RegExp(`(etoile|numero|\\ble|\\bdu)\\s*(numero\\s*)?${param}\\b`), ' ') : texte;
+  const sansParam = param ? texte.replace(new RegExp(`(etoile|bonus|numero|\\ble|\\bdu)\\s*(numero\\s*|est\\s*(le\\s*)?)?${param}\\b`), ' ') : texte;
   const regles = [
     [/(?:au moins|minimum|a partir de)\s*(\d+)/, '>=', 0], [/(\d+)\s*(?:ou plus|et plus|minimum)/, '>=', 0],
     [/(?:plus de|superieure? a|au[- ]dessus de|depasse)\s*(\d+)/, '>=', 1],
@@ -71,7 +81,7 @@ function trouverSeuil(texte, prop, param) {
 export function interpreter(question) {
   let texte = sansAccent(String(question)).replace(/\s+/g, ' ').trim();
   if (!texte) return { erreur: 'Écrivez votre question, par exemple : « Les numéros pairs sortent-ils plus après 4 impairs ? »' };
-  const jour = /mardi/.test(texte) ? 'mardi' : /vendredi/.test(texte) ? 'vendredi' : null;
+  const jour = JEU.nomsJours.find((j) => texte.includes(j)) ?? null;
   let serie = 1;
   const suite = texte.match(/(\d+)\s*tirages?\s*(?:de suite|consecutifs?|d affilee|a la suite)/);
   if (suite) { serie = Math.min(10, Math.max(1, Number(suite[1]))); texte = texte.replace(suite[0], ' '); }
@@ -90,7 +100,7 @@ export function interpreter(question) {
   }
 
   const cibleProp = trouverPropriete(partieCible || '');
-  if (!cibleProp) return { erreur: 'Je n\'ai pas compris ce qu\'il faut mesurer. Utilisez les menus ci-dessous, ou des mots comme : pairs, impairs, somme, suites, dizaines, le numéro 7, l\'étoile 3.' };
+  if (!cibleProp) return { erreur: 'Je n\'ai pas compris ce qu\'il faut mesurer. Utilisez les menus ci-dessous, ou des mots comme : pairs, impairs, somme, suites, dizaines, le numéro 7, ' + (JEU.nbEtoiles ? 'l\'étoile 3.' : 'le bonus 12.') };
   const cibleSeuil = PROPRIETES[cibleProp.prop].parametre ? { op: '=', val: 1 } : trouverSeuil(partieCible, cibleProp.prop, cibleProp.param);
   const spec = { decalage, jour, condition: null, cible: { ...cibleProp, ...(cibleSeuil || { op: null, val: null }) } };
   if (partieCondition !== null) {
@@ -119,7 +129,7 @@ export function valider(spec) {
   if (spec.condition && !condition) return null;
   return {
     decalage: condition && spec.decalage === 0 ? 0 : condition ? 1 : 0,
-    jour: ['mardi', 'vendredi'].includes(spec.jour) ? spec.jour : null,
+    jour: JEU.nomsJours.includes(spec.jour) ? spec.jour : null,
     condition: condition ? { ...condition, serie: Math.min(10, Math.max(1, Math.round(Number(spec.condition.serie) || 1))) } : null,
     cible,
   };
@@ -159,7 +169,7 @@ export function mesurer(spec, tirages) {
     suite = condition ? (condition[i] ? suite + 1 : 0) : serie;
     const j = i + spec.decalage;
     if (suite < serie || j >= tirages.length) continue;
-    if (spec.jour && (jourSemaine(tirages[j][0]) === 2 ? 'mardi' : 'vendredi') !== spec.jour) continue;
+    if (spec.jour && jourDe(tirages[j][0]) !== spec.jour) continue;
     cas++;
     somme += spec.cible.op ? (comparer(cible[j], spec.cible.op, spec.cible.val) ? 100 : 0) : cible[j];
   }
@@ -174,7 +184,15 @@ function tirer(combien, max, hasard) {
 
 // Un faux historique : mêmes dates, numéros et étoiles tirés au hasard (avec le nombre d'étoiles en jeu à chaque date).
 export function fauxHistorique(tirages, hasard) {
-  return tirages.map((t) => [t[0], ...tirer(5, 50, hasard), ...tirer(2, nbEtoilesEnJeu(t[0]), hasard)]);
+  // Lotto : 7 boules différentes de la même urne, les 6 premières en ordre croissant, puis le bonus
+  if (JEU.bonus) {
+    return tirages.map((t) => {
+      const urne = [];
+      while (urne.length < JEU.k + 1) { const x = 1 + Math.floor(hasard() * JEU.boules); if (!urne.includes(x)) urne.push(x); }
+      return [t[0], ...urne.slice(0, JEU.k).sort((a, b) => a - b), urne[JEU.k]];
+    });
+  }
+  return tirages.map((t) => [t[0], ...tirer(JEU.k, JEU.boules, hasard), ...tirer(JEU.nbEtoiles, nbEtoilesEnJeu(t[0]), hasard)]);
 }
 
 export const NB_SIMULATIONS = 300;
@@ -219,7 +237,8 @@ export function conclure(spec, r, essais = 1) {
 // La « loi » qu'un test enregistré peut imposer à une grille : son événement mesuré, ou à défaut sa condition.
 export function loiDeGrille(spec) {
   const x = spec.cible.op ? spec.cible : spec.condition;
-  return x ? { ...x, texte: direSeuil(x) } : null;
+  // le bonus n'est pas sur une grille : une mesure du bonus ne peut pas servir à choisir des grilles
+  return x && x.prop !== 'bonus' ? { ...x, texte: direSeuil(x) } : null;
 }
 
 // 1 si la grille respecte la loi, 0 sinon.
@@ -230,18 +249,18 @@ export function respecte(loi, grille) {
 
 // ---------- Mémoire ----------
 
-const CLE_STOCKAGE = 'labise-monlabo';
+const cleStockage = () => JEU.prefixe + 'monlabo';
 export const MESURES_MAX = 20;
 
 export function charger(stockage) {
-  const m = lire(stockage, CLE_STOCKAGE, {});
+  const m = lire(stockage, cleStockage(), {});
   const mesures = (Array.isArray(m.mesures) ? m.mesures : [])
     .map((x) => ({ id: String(x?.id ?? ''), question: String(x?.question ?? '').slice(0, 200), spec: valider(x?.spec) }))
     .filter((x) => x.id && x.spec).slice(0, MESURES_MAX);
   return { mesures, essais: Math.max(0, Math.round(Number(m.essais) || 0)) };
 }
 
-export const sauver = (stockage, labo) => ecrire(stockage, CLE_STOCKAGE, labo);
+export const sauver = (stockage, labo) => ecrire(stockage, cleStockage(), labo);
 
 export function enregistrer(labo, question, spec) {
   const id = JSON.stringify(spec);

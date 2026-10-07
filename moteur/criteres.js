@@ -3,6 +3,7 @@
 
 import { DOSAGES } from './reglages.js';
 import { respecte } from './monlabo.js';
+import { JEU, numerosDe, etoilesDe } from './jeu.js';
 
 const POIDS_LOI = 100;
 
@@ -16,50 +17,52 @@ export function centiles(valeurs) {
   });
 }
 
-// tirages : [[date, n1, n2, n3, n4, n5, e1, e2], …] du plus ancien au plus récent.
+// tirages : [[date, n1, n2, n3, n4, n5, e1, e2], …] du plus ancien au plus récent ([date, n1..n6, bonus] au Lotto : le bonus n'y compte pas).
 // « chaud » = nombre de sorties sur les `fenetre` derniers tirages ; « retard » = tirages écoulés depuis la dernière sortie.
 export function statistiques(tirages, fenetre, nbEtoiles = 12) {
   const total = tirages.length;
   const s = {
     nb: total, fenetre,
-    sortiesN: Array(50).fill(0), chaudN: Array(50).fill(0), retardN: Array(50).fill(total),
+    sortiesN: Array(JEU.boules).fill(0), chaudN: Array(JEU.boules).fill(0), retardN: Array(JEU.boules).fill(total),
     sortiesE: Array(nbEtoiles).fill(0), chaudE: Array(nbEtoiles).fill(0), retardE: Array(nbEtoiles).fill(total),
   };
   tirages.forEach((t, i) => {
     const recent = i >= total - fenetre, age = total - 1 - i;
-    t.slice(1, 6).forEach((n) => { s.sortiesN[n - 1]++; if (recent) s.chaudN[n - 1]++; s.retardN[n - 1] = age; });
-    t.slice(6, 8).forEach((e) => { s.sortiesE[e - 1]++; if (recent) s.chaudE[e - 1]++; s.retardE[e - 1] = age; });
+    numerosDe(t).forEach((n) => { s.sortiesN[n - 1]++; if (recent) s.chaudN[n - 1]++; s.retardN[n - 1] = age; });
+    etoilesDe(t).forEach((e) => { s.sortiesE[e - 1]++; if (recent) s.chaudE[e - 1]++; s.retardE[e - 1] = age; });
   });
   s.centChaudN = centiles(s.chaudN); s.centChaudE = centiles(s.chaudE);
   s.centFroidN = centiles(s.retardN); s.centFroidE = centiles(s.retardE);
-  // « corde à nœuds » : tension d'un numéro = moyenne de ses 3 derniers écarts entre deux sorties, rapportée à 10 (1 = normale)
-  const sorties = Array.from({ length: 50 }, () => []);
-  tirages.forEach((t, i) => t.slice(1, 6).forEach((n) => sorties[n - 1].push(i)));
+  // « corde à nœuds » : tension d'un numéro = moyenne de ses 3 derniers écarts entre deux sorties, rapportée à l'écart moyen
+  // (10 tirages à l'EuroMillions, 7,5 au Lotto) : 1 = normale
+  const sorties = Array.from({ length: JEU.boules }, () => []);
+  tirages.forEach((t, i) => numerosDe(t).forEach((n) => sorties[n - 1].push(i)));
   s.tensionN = sorties.map((l) => {
     const ecarts = l.slice(-4).map((x, i, a) => (i ? x - a[i - 1] : null)).filter((x) => x !== null);
-    return ecarts.length ? ecarts.reduce((a, b) => a + b, 0) / ecarts.length / 10 : 1;
+    return ecarts.length ? ecarts.reduce((a, b) => a + b, 0) / ecarts.length / JEU.ecartMoyen : 1;
   });
   s.centTensionN = centiles(s.tensionN);
   return s;
 }
 
 // Les lois du labo utilisables pour générer des grilles. Comme les styles, aucune ne change la chance de gagner.
-const ENTROPIE_MAX = Math.log2(5);
 export const LOIS = {
   gauss: {
-    nom: 'Courbe de Gauss', texte: 'Garde les grilles dont la somme est proche du centre de la cloche (127,5).',
-    note: (g) => 1 - Math.min(1, Math.abs(g.numeros.reduce((a, b) => a + b, 0) - 127.5) / 60),
+    nom: 'Courbe de Gauss',
+    get texte() { return `Garde les grilles dont la somme est proche du centre de la cloche (${String(JEU.sommeCentre).replace('.', ',')}).`; },
+    note: (g) => 1 - Math.min(1, Math.abs(g.numeros.reduce((a, b) => a + b, 0) - JEU.sommeCentre) / 60),
   },
   corde: {
     nom: 'Corde à nœuds', texte: 'Préfère les numéros dont la corde est « tendue » : leurs dernières sorties ont été espacées.',
-    note: (g, ctx) => g.numeros.reduce((a, n) => a + ctx.stats.centTensionN[n - 1], 0) / 5,
+    note: (g, ctx) => g.numeros.reduce((a, n) => a + ctx.stats.centTensionN[n - 1], 0) / g.numeros.length,
   },
   entropie: {
-    nom: 'Désordre maximal', texte: 'Préfère les grilles dispersées : idéalement un numéro par dizaine.',
+    nom: 'Désordre maximal',
+    get texte() { return JEU.k <= JEU.nbDizaines ? 'Préfère les grilles dispersées : idéalement un numéro par dizaine.' : 'Préfère les grilles dispersées : idéalement deux numéros dans une dizaine et un dans chacune des autres.'; },
     note: (g) => {
-      const parDizaine = [0, 0, 0, 0, 0];
+      const parDizaine = Array(JEU.nbDizaines).fill(0), k = g.numeros.length;
       g.numeros.forEach((n) => { parDizaine[Math.floor((n - 1) / 10)]++; });
-      return Math.abs(-parDizaine.filter(Boolean).reduce((a, k) => a + (k / 5) * Math.log2(k / 5), 0)) / ENTROPIE_MAX;
+      return Math.abs(-parDizaine.filter(Boolean).reduce((a, x) => a + (x / k) * Math.log2(x / k), 0)) / JEU.entropieMax;
     },
   },
 };
@@ -80,7 +83,7 @@ function moyenne(grille, parNumero, parEtoile) {
   let somme = 0;
   grille.numeros.forEach((n) => { somme += parNumero[n - 1]; });
   grille.etoiles.forEach((e) => { somme += parEtoile[e - 1]; });
-  return somme / 7;
+  return somme / (grille.numeros.length + grille.etoiles.length);
 }
 
 export const CRITERES = {
@@ -89,7 +92,7 @@ export const CRITERES = {
   harmonique: (g, ctx, r) => {
     const somme = g.numeros.reduce((a, b) => a + b, 0);
     const pairs = g.numeros.filter((n) => n % 2 === 0).length;
-    return ((somme >= r.sommeMin && somme <= r.sommeMax ? 1 : 0) + (pairs === 2 || pairs === 3 ? 1 : 0)) / 2;
+    return ((somme >= r.sommeMin && somme <= r.sommeMax ? 1 : 0) + (JEU.pairs.includes(pairs) ? 1 : 0)) / 2;
   },
   antiFoule: (g, ctx) => 1 - moyenne(g, ctx.centPopN, ctx.centPopE),
 };

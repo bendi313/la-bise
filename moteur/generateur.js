@@ -3,6 +3,7 @@
 
 import { noter, effetPartage } from './criteres.js';
 import { DOSAGES } from './reglages.js';
+import { JEU } from './jeu.js';
 
 const CANDIDATES_PAR_GRILLE = 20;
 const CANDIDATES_MIN = 400;
@@ -15,11 +16,12 @@ function tirer(combien, max, hasard, imposes = []) {
 }
 
 // `imposes` : numéros placés d'office dans la grille (les fétiches) ; le reste est tiré au hasard.
-export function grilleAuHasard(nbEtoiles = 12, hasard = Math.random, imposes = []) {
-  return { numeros: tirer(5, 50, hasard, imposes), etoiles: tirer(2, nbEtoiles, hasard) };
+// Au Lotto, une grille n'a pas d'étoiles : 6 numéros sur 45.
+export function grilleAuHasard(nbEtoiles = JEU.etoilesMax, hasard = Math.random, imposes = []) {
+  return { numeros: tirer(JEU.k, JEU.boules, hasard, imposes), etoiles: tirer(JEU.nbEtoiles, nbEtoiles, hasard) };
 }
 
-export const cleGrille = (g) => g.numeros.join('-') + '+' + g.etoiles.join('-');
+export const cleGrille = (g) => g.numeros.join('-') + (g.etoiles.length ? '+' + g.etoiles.join('-') : '');
 
 // Pour chaque grille demandée, tire au sort quels fétiches y seront placés d'office, selon le dosage.
 // Renvoie les groupes { imposes, combien } : « 3 grilles avec le 7 et le 13 », « 2 grilles sans fétiche », etc.

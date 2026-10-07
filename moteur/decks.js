@@ -2,8 +2,10 @@
 // (Le fichier garde son ancien nom : les formules ont remplacé les « decks » des premières versions.)
 
 import { validerMelange, valider, MELANGE, lire, ecrire } from './reglages.js';
+import { JEU } from './jeu.js';
 
-const CLE_STOCKAGE = 'labise-decks';      // même emplacement qu'avant : les anciens decks deviennent des formules
+// même emplacement qu'avant pour l'EuroMillions (les anciens decks deviennent des formules) ; le Lotto a le sien
+const cleStockage = () => JEU.prefixe + 'decks';
 export const FORMULES_MAX = 12;
 const NOM_MAX = 30;
 
@@ -36,11 +38,11 @@ export function formuleActive(formules, melange) {
 }
 
 export function charger(stockage) {
-  const liste = lire(stockage, CLE_STOCKAGE, []);
+  const liste = lire(stockage, cleStockage(), []);
   return (Array.isArray(liste) ? liste : [])
     .filter((f) => f && nomPropre(f.nom) && f.reglages)
     .map((f) => ({ nom: nomPropre(f.nom), reglages: extraire(f.reglages) }))
     .slice(0, FORMULES_MAX);
 }
 
-export const sauver = (stockage, formules) => ecrire(stockage, CLE_STOCKAGE, formules);
+export const sauver = (stockage, formules) => ecrire(stockage, cleStockage(), formules);

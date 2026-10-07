@@ -2,7 +2,7 @@
 
 import { contexte, NOMS_CRITERES, LOIS } from './moteur/criteres.js';
 import * as monLabo from './moteur/monlabo.js';
-import { PROFILS, STYLES, MELANGE, DEFAUTS, NOMBRES_DE_GRILLES, DOSAGES, FETICHES_MAX, charger, sauver, valider, validerFetiches, effectifs } from './moteur/reglages.js';
+import { PROFILS, STYLES, MELANGE, DEFAUTS, defautsDuJeu, NOMBRES_DE_GRILLES, DOSAGES, FETICHES_MAX, charger, sauver, valider, validerFetiches, effectifs } from './moteur/reglages.js';
 import { generer } from './moteur/generateur.js';
 import { versCSV, versJSON, versTicket, telecharger } from './moteur/export.js';
 import { rejouer } from './moteur/rejeu.js';
@@ -11,6 +11,7 @@ import * as formuleOutils from './moteur/decks.js';
 import { THEMES, CATEGORIES, COULEURS_PERSO, appliquer, palette, couleurThermique } from './themes.js';
 import { ficheNumero, ficheEtoile, enquetesDeLEtoile, pourcent, jauge, enquetesDuNumero, bilanEnquetes, resumeFiche } from './labo.js';
 import { phraseProfil, phraseFetiches, definitionStyle, nombre, signe, dateFr, MENTIONS } from './textes.js';
+import { JEU, JEUX, choisirJeu, numerosDe, etoilesDe, bonusDe, chancePct, chanceTexte } from './moteur/jeu.js';
 
 const $ = (id) => document.getElementById(id);
 const AFFICHEES_MAX = 50;
@@ -18,9 +19,10 @@ const MENU = [['grilles', 'Grilles'], ['carnet', 'Carnet'], ['numeros', 'Numéro
 const MODES = {
   chaud: { nom: 'Forme récente', froid: 'Sorti peu récemment', chaud: 'Souvent sorti récemment' },
   retard: { nom: 'Retard', froid: 'Sorti il y a peu', chaud: 'Absent depuis longtemps' },
-  frequence: { nom: 'Depuis 2004', froid: 'Moins sorti', chaud: 'Plus sorti' },
+  frequence: { get nom() { return `Depuis ${JEU.depuis}`; }, froid: 'Moins sorti', chaud: 'Plus sorti' },
   foule: { nom: 'Joué par la foule', froid: 'Très peu joué', chaud: 'Très joué' },
 };
+const CLE_JEU = 'labise-jeu';            // le dernier jeu affiché (EuroMillions ou Lotto belge)
 // Les deux familles d'enquêtes, chacune avec sa couleur (variables CSS du thème).
 const FAMILLES = { insolites: { nom: 'Dates insolites', classe: 'famille-dates' }, boulier: { nom: 'Anomalies du boulier', classe: 'famille-boulier' },
   experiences: { nom: 'Expériences du labo', classe: 'famille-experiences' } };
@@ -29,7 +31,9 @@ const AIDE_JAUGE = 'La zone claire est ce que le hasard normal donne 19 fois sur
 const teinte = (t) => couleurThermique(t, pal, reglages.seuils);
 
 let D = null, ctx = null, pal = null, indexDates = null, dernierTirage = null;
+const DONNEES = {};                      // les données de chaque jeu, chargées une seule fois
 let stockage = localStorage;
+try { choisirJeu(JSON.parse(stockage.getItem(CLE_JEU)) || 'euromillions'); } catch { /* premier lancement : EuroMillions */ }
 let reglages = charger(stockage);
 let formules = formuleOutils.charger(stockage);
 let carnet = carnetOutils.charger(stockage);
@@ -58,10 +62,12 @@ function boule(valeur, chaleur, etoile = false, classe = '') {
 }
 
 // `bons` : numéros et étoiles sortis au tirage, mis en valeur (carnet).
+// Lotto : `g.bonus` est le numéro bonus d'un vrai tirage, montré à part (bordure en tirets).
 function boulesGrille(g, bons = null) {
   const marque = (liste, v) => (bons ? (liste.includes(v) ? ' bon' : ' rate') : '');
   return '<div class="boules">' + g.numeros.map((n) => boule(n, ctx.stats.centChaudN[n - 1], false, marque(bons?.numeros ?? [], n))).join('') +
-    g.etoiles.map((e) => boule(e, ctx.stats.centChaudE[e - 1], true, marque(bons?.etoiles ?? [], e))).join('') + '</div>';
+    g.etoiles.map((e) => boule(e, ctx.stats.centChaudE[e - 1], true, marque(bons?.etoiles ?? [], e))).join('') +
+    (g.bonus ? `<span class="discret plus-bonus">bonus</span>${boule(g.bonus, ctx.stats.centChaudN[g.bonus - 1], false, ' bonus' + marque(bons?.numeros ?? [], g.bonus))}` : '') + '</div>';
 }
 
 // ---------- Grilles ----------
@@ -151,7 +157,7 @@ function carteGrille(g, i) {
     `<div class="mesure"><span>Effet de partage estimé</span><b>${signe(g.partage.gain, 1)} % de gain si elle sort</b></div>` +
     `<details><summary>Détail</summary>${detail ? `<table>${detail}</table>` : ''}` +
     `<p class="discret">Somme des numéros : ${g.numeros.reduce((a, b) => a + b, 0)}. Estimation : ${signe(g.partage.gagnants, 1)} % de gagnants par rapport à une grille ordinaire. Cette estimation vient des petits rangs ; qu'elle vaille aussi pour le gros lot est une supposition.</p></details>` +
-    `<div class="ligne"><button class="bouton" data-fresque="${i}">Voir sa fresque historique (2004-${dernierTirage.slice(0, 4)})</button>` +
+    `<div class="ligne"><button class="bouton" data-fresque="${i}">Voir sa fresque historique (${D.tirages[0][0].slice(0, 4)}-${dernierTirage.slice(0, 4)})</button>` +
     `<button class="bouton" data-carnet="${i}">Ajouter au carnet</button></div></div>`;
 }
 
@@ -252,7 +258,7 @@ function vueGrilles(racine) {
       '<h3>Réglages fins</h3>' +
       Object.keys(NOMS_CRITERES).map((c) => `<div class="curseur"><span>${NOMS_CRITERES[c]}</span><input type="range" min="0" max="100" step="5" value="${m.poids[c]}" data-poids="${c}"><span>${m.poids[c]}</span></div>`).join('') +
       `<div class="ligne"><label>« Chaud » sur les <input type="number" id="r-fenetre" min="5" max="200" value="${m.fenetreChaud}"> derniers tirages</label></div>` +
-      `<div class="ligne"><label>Somme entre <input type="number" id="r-min" min="15" max="240" value="${m.sommeMin}"> et <input type="number" id="r-max" min="15" max="240" value="${m.sommeMax}"></label></div>` +
+      `<div class="ligne"><label>Somme entre <input type="number" id="r-min" min="${JEU.sommeBornes[0]}" max="${JEU.sommeBornes[1]}" value="${m.sommeMin}"> et <input type="number" id="r-max" min="${JEU.sommeBornes[0]}" max="${JEU.sommeBornes[1]}" value="${m.sommeMax}"></label></div>` +
       '<h3>Numéros fétiches de Mon mélange</h3>' + htmlFetiches(m) +
       transparence() + htmlNombreEtAffichage() + '</div><div id="resultats"></div><div id="fresque"></div>';
   }
@@ -340,9 +346,9 @@ function resultats() {
     (total <= AFFICHEES_MAX ? '<button class="bouton" id="x-carnet">Tout ajouter au carnet</button>' : '') +
     '<button class="bouton" id="x-csv">Exporter en CSV</button><button class="bouton" id="x-json">Exporter en JSON</button></div>' +
     '<p class="discret" id="x-message"></p>' +
-    '<p class="discret">Chaque grille a exactement la même chance de sortir que n\'importe quelle autre : 1 sur 139 838 160 pour le gros lot.</p></div>';
-  $('x-csv').onclick = () => telecharger('la-bise-grilles.csv', versCSV(etat.grilles), 'text/csv;charset=utf-8');
-  $('x-json').onclick = () => telecharger('la-bise-grilles.json', versJSON(etat.grilles, reglages), 'application/json');
+    `<p class="discret">Chaque grille a exactement la même chance de sortir que n'importe quelle autre : ${JEU.grosLot} pour le gros lot.</p></div>`;
+  $('x-csv').onclick = () => telecharger(`la-bise-${JEU.cle}-grilles.csv`, versCSV(etat.grilles), 'text/csv;charset=utf-8');
+  $('x-json').onclick = () => telecharger(`la-bise-${JEU.cle}-grilles.json`, versJSON(etat.grilles, reglages), 'application/json');
   if ($('x-carnet')) $('x-carnet').onclick = () => { $('x-message').textContent = ajouterAuCarnet(etat.grilles); };
   if ($('x-copier')) {
     $('x-copier').onclick = () => navigator.clipboard.writeText(versTicket(etat.grilles, dateFr(aujourdhui())))
@@ -357,7 +363,8 @@ function resultats() {
 
 // ---------- Carnet ----------
 
-const NOMS_RANGS = (e) => `${pluriel(e.bonsNumeros, 'numéro')} et ${pluriel(e.bonnesEtoiles, 'étoile')}`;
+const NOMS_RANGS = (e) => (JEU.bonus ? `${pluriel(e.bonsNumeros, 'numéro')}${e.bonnesEtoiles ? ' + le bonus' : ''}` : `${pluriel(e.bonsNumeros, 'numéro')} et ${pluriel(e.bonnesEtoiles, 'étoile')}`);
+const BON_RANG = () => (JEU.bonus ? 6 : 9);      // rangs mis en valeur dans la chronologie
 
 function ligneCarnet(entree) {
   const e = carnetOutils.etatEntree(entree, D, indexDates, dernierTirage);
@@ -365,12 +372,13 @@ function ligneCarnet(entree) {
   if (e.statut === 'attente') statut = '<b>En attente du tirage</b>';
   else if (e.statut === 'introuvable') statut = 'Tirage absent des données';
   else {
-    bons = { numeros: e.tirage.slice(1, 6), etoiles: e.tirage.slice(6, 8) };
+    bons = { numeros: numerosDe(e.tirage), etoiles: etoilesDe(e.tirage) };
     statut = e.rang
       ? `<b>${NOMS_RANGS(e)} — rang ${e.rang} — ${e.inconnu ? 'montant inconnu (rang non gagné ce soir-là dans la source)' : nombre(e.gain, 2) + ' €'}</b>`
       : `${NOMS_RANGS(e)} — rien gagné`;
   }
-  return `<div class="carte"><p class="discret">Tirage du ${dateFr(entree.date)}</p>${boulesGrille(entree, bons)}<div class="mesure"><span>${statut}</span></div>` +
+  const sortis = e.statut === 'tire' && JEU.bonus ? `<p class="discret">Tirage : ${numerosDe(e.tirage).join(' – ')}, bonus ${bonusDe(e.tirage)}</p>` : '';
+  return `<div class="carte"><p class="discret">Tirage du ${dateFr(entree.date)}</p>${boulesGrille(entree, bons)}${sortis}<div class="mesure"><span>${statut}</span></div>` +
     `<div class="ligne"><button class="bouton" data-rejouer="${entree.id}">Tester dans le temps</button><button class="bouton" data-oter="${entree.id}">Supprimer</button></div></div>`;
 }
 
@@ -388,24 +396,28 @@ function htmlChronologie(r) {
   const res = r.resultat, max = Math.max(1, ...res.parAnnee.map((a) => a.touches));
   const frise = res.parAnnee.map((a) => `<button class="annee${r.annee === a.annee ? ' choisie' : ''}" data-annee="${a.annee}" ` +
     `title="${a.annee} : ${a.touches} tirage(s) gagnant(s) sur ${a.tirages}">` +
-    `<i style="height:${Math.max(4, (100 * a.touches) / max)}%;background:${a.meilleurRang ? couleurThermique(1 - (a.meilleurRang - 1) / 12, pal) : 'var(--bord)'}"></i>` +
+    `<i style="height:${Math.max(4, (100 * a.touches) / max)}%;background:${a.meilleurRang ? couleurThermique(1 - (a.meilleurRang - 1) / (JEU.nbRangs - 1), pal) : 'var(--bord)'}"></i>` +
     `<b>${a.touches}</b><small>${a.annee.slice(2)}</small></button>`).join('');
-  const rangMax = r.rangMax ?? 13;
+  const rangMax = r.rangMax ?? JEU.nbRangs;
   const touches = res.touches.filter((t) => (!r.annee || t.date.startsWith(r.annee)) && t.rang <= rangMax).reverse();
   const annee = r.annee ? res.parAnnee.find((a) => a.annee === r.annee) : null;
-  const ligne = (t) => `<div class="touche"><div class="entete"><b>${dateFr(t.date)}</b><span class="reponse${t.rang <= 9 ? ' oui' : ''}">Rang ${t.rang}</span></div>` +
-    `${boulesGrille(t, r.grille)}<p class="discret">${pluriel(t.bonsNumeros, 'bon numéro').replace('bon numéros', 'bons numéros')} et ${pluriel(t.bonnesEtoiles, 'bonne étoile').replace('bonne étoiles', 'bonnes étoiles')} — ` +
+  const bonnes = (t) => (JEU.bonus ? (t.bonnesEtoiles ? ' + le bonus' : '')
+    : ` et ${pluriel(t.bonnesEtoiles, 'bonne étoile').replace('bonne étoiles', 'bonnes étoiles')}`);
+  const ligne = (t) => `<div class="touche"><div class="entete"><b>${dateFr(t.date)}</b><span class="reponse${t.rang <= BON_RANG() ? ' oui' : ''}">Rang ${t.rang}</span></div>` +
+    `${boulesGrille(t, r.grille)}<p class="discret">${pluriel(t.bonsNumeros, 'bon numéro').replace('bon numéros', 'bons numéros')}${bonnes(t)} — ` +
     `<b>${t.inconnu ? 'montant inconnu (personne n\'avait gagné ce rang ce soir-là)' : nombre(t.gain, 2) + ' €'}</b></p></div>`;
   return '<h3>Chronologie : les tirages où la grille a touché</h3>' +
     '<p class="discret">Une colonne par année : la hauteur donne le nombre de tirages gagnants, la couleur le meilleur rang de l\'année (plus chaud = meilleur rang). Touchez une année pour n\'afficher qu\'elle.</p>' +
     `<div class="frise">${frise}</div>` +
-    `<div class="ligne"><label>Afficher <select id="chrono-rang">${[[13, 'tous les rangs'], [11, 'rang 11 ou mieux'], [9, 'rang 9 ou mieux'], [6, 'rang 6 ou mieux']]
+    `<div class="ligne"><label>Afficher <select id="chrono-rang">${(JEU.bonus ? [[9, 'tous les rangs'], [7, 'rang 7 ou mieux'], [5, 'rang 5 ou mieux'], [3, 'rang 3 ou mieux']]
+      : [[13, 'tous les rangs'], [11, 'rang 11 ou mieux'], [9, 'rang 9 ou mieux'], [6, 'rang 6 ou mieux']])
       .map(([v, nom]) => `<option value="${v}"${v === rangMax ? ' selected' : ''}>${nom}</option>`).join('')}</select></label>` +
     (r.annee ? '<button class="bouton" id="chrono-tout">Toutes les années</button>' : '') + '</div>' +
     `<p class="legende-filtre">${annee ? `${annee.annee} : ${pluriel(annee.touches, 'tirage gagnant').replace('tirage gagnants', 'tirages gagnants')} sur ${annee.tirages}, ${nombre(annee.cout)} € misés, ${nombre(annee.gains, 2)} € récupérés`
       : `${pluriel(touches.length, 'tirage affiché').replace('tirage affichés', 'tirages affichés')}, du plus récent au plus ancien`}</p>` +
     (touches.length ? `<div class="haut touches">${touches.map(ligne).join('')}</div>` : '<p class="discret">Aucun tirage gagnant avec ce filtre.</p>') +
-    '<p class="discret">Dans chaque tirage : les boules entourées sont celles de votre grille, les autres sont estompées. Les couleurs des boules suivent la forme récente du numéro, comme ailleurs.</p>';
+    '<p class="discret">Dans chaque tirage : les boules entourées sont celles de votre grille, les autres sont estompées. Les couleurs des boules suivent la forme récente du numéro, comme ailleurs.' +
+    (JEU.bonus ? ' La boule à bordure en tirets est le numéro bonus du tirage.' : '') + '</p>';
 }
 
 function carteRejeu(r) {
@@ -424,16 +436,17 @@ function carteRejeu(r) {
       (res.meilleurs.length ? '<p class="discret">Meilleurs tirages : ' + res.meilleurs.map((m) => `${dateFr(m.date)} (rang ${m.rang}, ${m.gain ? nombre(m.gain, 2) + ' €' : 'montant inconnu'})`).join(' ; ') + '.</p>' : '') + '</details>' : '') +
     (res.inconnus ? `<p class="discret">${pluriel(res.inconnus, 'rang')} atteint${res.inconnus > 1 ? 's' : ''} un soir où personne ne l'avait gagné : le montant réel est inconnu et compté pour 0.</p>` : '') +
     `<p class="transparence">Ce rejeu décrit le passé de cette grille. Il ne dit rien de son avenir : au prochain tirage, elle a la même chance que toutes les autres. À titre de repère, une grille tirée au hasard rend environ ${nombre(D.rejeu.profils.hasard.retour, 0)} € pour 100 € misés sur la durée.</p>` +
-    '<p class="discret">Prix belge de la grille (2 € puis 2,50 € depuis septembre 2016) ; montants publiés par la FDJ. Une grille avec l\'étoile 10, 11 ou 12 n\'est rejouée que depuis que cette étoile existe.</p></div>';
+    `<p class="discret">${JEU.prixTexte}</p></div>`;
 }
 
 function vueCarnet(racine) {
   const b = carnetOutils.bilan(carnet, D, indexDates, dernierTirage);
   racine.innerHTML = '<div class="carte"><h2>Mon carnet</h2><p class="discret">Les grilles que vous avez réellement jouées. Elles restent sur cet appareil et sont vérifiées dès que le tirage est dans les données.</p>' +
-    `<div class="ligne"><label>5 numéros <input id="c-numeros" inputmode="numeric" placeholder="ex. 3 17 28 41 49"></label></div>` +
-    `<div class="ligne"><label>2 étoiles <input id="c-etoiles" inputmode="numeric" placeholder="ex. 2 11"></label><label>Tirage du <input type="date" id="c-date" value="${carnetOutils.prochainTirage(aujourdhui())}"></label></div>` +
+    `<div class="ligne"><label>${JEU.k} numéros <input id="c-numeros" inputmode="numeric" placeholder="ex. ${JEU.bonus ? '3 17 28 33 41 44' : '3 17 28 41 49'}"></label></div>` +
+    `<div class="ligne">${JEU.nbEtoiles ? '<label>2 étoiles <input id="c-etoiles" inputmode="numeric" placeholder="ex. 2 11"></label>' : ''}<label>Tirage du <input type="date" id="c-date" value="${carnetOutils.prochainTirage(aujourdhui())}"></label></div>` +
     '<div class="ligne"><button class="bouton" id="c-ajouter">Ajouter au carnet</button><button class="bouton" id="c-tester">Tester ma grille dans le temps</button></div>' +
-    '<p class="discret">« Tester ma grille dans le temps » rejoue cette combinaison sur tous les tirages depuis 2004 : bilan, chronologie année par année, et chaque tirage où elle a touché.</p>' +
+    `<p class="discret">« Tester ma grille dans le temps » rejoue cette combinaison sur tous les tirages depuis ${JEU.depuis} : bilan, chronologie année par année, et chaque tirage où elle a touché.` +
+    (JEU.bonus ? ' Au Lotto, le bonus compte quand il fait partie de vos 6 numéros : il n\'y a rien d\'autre à saisir.' : '') + '</p>' +
     `<p class="discret" id="c-message">${etat.message}</p></div>` +
     (carnet.length ? '<div class="carte"><h2>Bilan du carnet</h2>' +
       `<div class="mesure"><span>Grilles notées</span><b>${nombre(b.grilles)} (${nombre(b.attente)} en attente)</b></div>` +
@@ -444,7 +457,8 @@ function vueCarnet(racine) {
     carnet.map(ligneCarnet).join('');
   etat.message = '';
 
-  const saisie = () => carnetOutils.preparer(lireListe($('c-numeros').value), lireListe($('c-etoiles').value), $('c-date').value);
+  const etoilesSaisies = () => ($('c-etoiles') ? lireListe($('c-etoiles').value) : []);
+  const saisie = () => carnetOutils.preparer(lireListe($('c-numeros').value), etoilesSaisies(), $('c-date').value);
   const montrerRejeu = (grille) => { etat.rejeu = { grille, resultat: rejouer(grille, D) }; afficher(); $('rejeu').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
   $('c-ajouter').onclick = () => {
     const entree = saisie();
@@ -454,7 +468,7 @@ function vueCarnet(racine) {
   };
   $('c-tester').onclick = () => {
     // pour un test, la date ne compte pas : on prend un jour de tirage quelconque
-    const entree = carnetOutils.preparer(lireListe($('c-numeros').value), lireListe($('c-etoiles').value), dernierTirage);
+    const entree = carnetOutils.preparer(lireListe($('c-numeros').value), etoilesSaisies(), dernierTirage);
     if (typeof entree === 'string') { $('c-message').textContent = entree; return; }
     montrerRejeu({ numeros: entree.numeros, etoiles: entree.etoiles });
   };
@@ -481,7 +495,7 @@ function contexteFrequence() {
   if (!memoFrequence) {
     const tout = contexte(D, { ...reglages, fenetreChaud: D.tirages.length }).stats;
     // étoiles : seulement depuis que les 12 sont en jeu, pour comparer ce qui est comparable
-    const recents = D.tirages.filter((t) => t[0] >= '2016-09-27');
+    const recents = D.tirages.filter((t) => t[0] >= JEU.regleActuelle);
     const depuis12 = contexte({ ...D, tirages: recents }, { ...reglages, fenetreChaud: recents.length }).stats;
     memoFrequence = { n: tout.centChaudN, e: depuis12.centChaudE };
   }
@@ -489,17 +503,18 @@ function contexteFrequence() {
 }
 
 // Barres colorées du froid au chaud : une barre à 10 % (l'attendu) est à mi-chemin, 5 % ou moins est tout froid, 15 % ou plus tout chaud.
-// Le trait pointillé marque les 10 % attendus.
+// Le trait pointillé marque les 10 % attendus (13,3 % au Lotto, avec la même échelle relative).
 function barres(cases, libelles) {
-  const max = Math.max(...cases.map((c) => pourcent(c) || 0), 15);
+  const attendu = 100 * JEU.chance;
+  const max = Math.max(...cases.map((c) => pourcent(c) || 0), 1.5 * attendu);
   // chaque barre porte son étiquette : au survol (ordinateur) ou au toucher (téléphone), elle s'affiche sous le graphique
-  return `<div class="barres"><b class="repere" style="bottom:${(100 * 10) / max}%"></b>${cases.map((c) => {
+  return `<div class="barres"><b class="repere" style="bottom:${(100 * attendu) / max}%"></b>${cases.map((c) => {
     const part = pourcent(c) || 0, info = `${c.annee} : ${nombre(part, 1)} % des tirages (${c.sorties} sorties sur ${c.tirages})`;
-    return `<i style="height:${Math.max(2, (100 * part) / max)}%;background:${couleurThermique((part - 5) / 10, pal)}" title="${info}" data-info="${info}" tabindex="0"></i>`;
+    return `<i style="height:${Math.max(2, (100 * part) / max)}%;background:${couleurThermique((part - attendu / 2) / attendu, pal)}" title="${info}" data-info="${info}" tabindex="0"></i>`;
   }).join('')}</div>` +
     `<div class="barres-textes"><span>${libelles[0]}</span><span>${libelles[1]}</span></div>` +
     '<p class="barres-info" id="barres-info">Touchez ou survolez une barre pour voir l\'année et la valeur exacte.</p>' +
-    '<div class="echelle"></div><div class="echelle-textes"><span>moins que prévu</span><span>pointillé : les 10 % attendus</span><span>plus que prévu</span></div>';
+    `<div class="echelle"></div><div class="echelle-textes"><span>moins que prévu</span><span>pointillé : les ${chancePct()} attendus</span><span>plus que prévu</span></div>`;
 }
 
 // La carte d'identité du numéro : chaque mesure avec sa jauge, l'attendu, la fourchette du hasard et un OUI / NON.
@@ -516,11 +531,11 @@ function htmlIdentite(n) {
   const oui = N.mesures.filter((m) => m.hors[i]).length;
   return `<h3>Carte d'identité : ${lignes.length} mesures</h3><p class="discret">Pour chaque mesure : ce numéro sort-il de ce que le hasard donne à un numéro pris seul, 19 fois sur 20 ? ` +
     `Réponse pour le ${n} : <b>OUI pour ${oui} mesure${oui > 1 ? 's' : ''} sur ${lignes.length}</b> ; par pur hasard on attend environ ${nombre(0.05 * lignes.length, 1)} « oui » par numéro. ` +
-    `Sur les ${nombre(N.nb_cases)} cases des 50 numéros, ${nombre(N.nb_hors)} sont des « oui », pour ${nombre(N.attendues_par_hasard)} attendus. ` +
-    'Plusieurs mesures racontent la même chose sous des angles différents (un numéro peu sorti l\'est aussi le mardi, depuis 2016, etc.) : ' +
+    `Sur les ${nombre(N.nb_cases)} cases des ${JEU.boules} numéros, ${nombre(N.nb_hors)} sont des « oui », pour ${nombre(N.attendues_par_hasard)} attendus. ` +
+    `Plusieurs mesures racontent la même chose sous des angles différents (un numéro peu sorti l'est aussi le ${JEU.nomsJours[0]}, depuis ${JEU.regleActuelleNom}, etc.) : ` +
     'plusieurs « oui » sur un même numéro ne sont donc pas autant de preuves séparées. Aucun ne dit quoi jouer.</p>' +
     `<details class="detail" id="identite"${oui ? ' open' : ''}><summary>Voir les ${lignes.length} mesures</summary>${lignes.join('')}` +
-    '<div class="ligne"><button class="bouton" data-action="haut">↑ Retour en haut</button><button class="bouton" data-action="replier">Fermer les 20 mesures</button></div></details>';
+    `<div class="ligne"><button class="bouton" data-action="haut">↑ Retour en haut</button><button class="bouton" data-action="replier">Fermer les ${lignes.length} mesures</button></div></details>`;
 }
 
 // Le badge de réponse, avec sa question écrite au-dessus : on sait toujours à quoi répond le OUI ou le NON.
@@ -555,21 +570,22 @@ function ficheHtml(n) {
   const tout = contexte(D, { ...reglages, fenetreChaud: D.tirages.length }).stats;
   const populaires = D.populaire.numeros.map((x) => x ?? 0);
   return `<div class="carte"><h2>Numéro ${n}</h2>` +
-    `<div class="mesure"><span>Sorties depuis 2004</span><b>${f.sorties} (attendu ${nombre(f.attendu, 1)})</b></div>` +
-    `<div class="mesure"><span>Classement par nombre de sorties</span><b>${rangDe(tout.sortiesN, n - 1)}e sur 50</b></div>` +
-    `<div class="mesure"><span>Depuis septembre 2016 (règle actuelle)</span><b>${f.regleActuelle.sorties} (attendu ${nombre(f.regleActuelle.tirages / 10, 1)})</b></div>` +
-    `<div class="mesure"><span>Sur les ${R().fenetreChaud} derniers tirages</span><b>${ctx.stats.chaudN[n - 1]} (attendu ${nombre(R().fenetreChaud / 10, 1)})</b></div>` +
-    `<div class="mesure"><span>Écart moyen entre deux sorties</span><b>${nombre(f.ecartMoyen, 1)} tirages (attendu 10)</b></div>` +
-    `<div class="mesure"><span>Classement « joué par la foule »</span><b>${rangDe(populaires, n - 1)}e sur 50</b></div>` +
+    `<div class="mesure"><span>Sorties depuis ${JEU.depuis}</span><b>${f.sorties} (attendu ${nombre(f.attendu, 1)})</b></div>` +
+    `<div class="mesure"><span>Classement par nombre de sorties</span><b>${rangDe(tout.sortiesN, n - 1)}e sur ${JEU.boules}</b></div>` +
+    `<div class="mesure"><span>Depuis ${JEU.regleActuelleNom} (règle actuelle)</span><b>${f.regleActuelle.sorties} (attendu ${nombre(f.regleActuelle.tirages * JEU.chance, 1)})</b></div>` +
+    `<div class="mesure"><span>Sur les ${R().fenetreChaud} derniers tirages</span><b>${ctx.stats.chaudN[n - 1]} (attendu ${nombre(R().fenetreChaud * JEU.chance, 1)})</b></div>` +
+    `<div class="mesure"><span>Écart moyen entre deux sorties</span><b>${nombre(f.ecartMoyen, 1)} tirages (attendu ${nombre(JEU.ecartMoyen, 1)})</b></div>` +
+    (JEU.bonus ? `<div class="mesure"><span>Sorti comme numéro bonus</span><b>${f.bonus} fois (attendu ${nombre(f.tirages / JEU.boules, 1)})</b></div>` : '') +
+    `<div class="mesure"><span>Classement « joué par la foule »</span><b>${rangDe(populaires, n - 1)}e sur ${JEU.boules}</b></div>` +
     `<div class="mesure"><span>Dernière sortie</span><b>${f.derniereSortie ? dateFr(f.derniereSortie) : 'jamais'} — il y a ${pluriel(f.retard, 'tirage')}</b></div>` +
     `<div class="mesure"><span>Plus longue absence</span><b>${f.plusLongueAbsence} tirages</b></div>` +
     `<div class="mesure"><span>Joué par la foule</span><b>${signe(D.populaire.numeros[n - 1], 1)} % de gagnants quand il sort</b></div>` +
     `<h3>Part des tirages où il est sorti, par année</h3>${barres(f.annees, [f.annees[0].annee, f.annees[f.annees.length - 1].annee])}` +
     '<h3>Jour, saison, moment du mois</h3><table><tr><th></th><th>Sorties</th><th>Part</th></tr>' +
     groupe(f.jours) + groupe(f.saisons) + groupe(f.moities) + '</table>' +
-    '<p class="discret">Le hasard donne 10 % partout ; de petits écarts sont normaux.</p>' +
+    `<p class="discret">Le hasard donne ${chancePct()} partout ; de petits écarts sont normaux.</p>` +
     `<h3>Sorti le plus souvent avec</h3><div class="boules">${f.compagnons.map(([m, c]) => boule(m, chaleurs(etat.mode)[0][m - 1]) + `<span class="discret">${c} fois</span>`).join('')}</div>` +
-    `<p class="discret">Un compagnon quelconque est attendu ${nombre(f.compagnonAttendu, 1)} fois. Parmi 49 compagnons, il y en a toujours quelques-uns en tête.</p>` +
+    `<p class="discret">Un compagnon quelconque est attendu ${nombre(f.compagnonAttendu, 1)} fois. Parmi ${JEU.boules - 1} compagnons, il y en a toujours quelques-uns en tête.</p>` +
     htmlIdentite(n) + htmlEnquetes(n) +
     '<p class="transparence">Cette fiche décrit le passé. Le laboratoire a vérifié qu\'un numéro chaud ou en retard n\'a pas plus de chances de sortir au tirage suivant.</p>' +
     '<div class="ligne"><button class="bouton" data-action="haut">↑ Retour en haut</button><button class="bouton" data-action="fermer">Fermer la fiche</button></div></div>';
@@ -582,8 +598,9 @@ function htmlPlateau() {
     `<div class="echelle-textes legende-filtre"><span>${m.froid}</span><span>${m.chaud}</span></div>` +
     (etat.mode === 'chaud' ? `<p class="discret">Sur les ${R().fenetreChaud} derniers tirages.</p>` : '') +
     `<div class="plateau" style="margin-top:10px">${cn.map((c, i) => `<button class="boule${etat.choisi === i + 1 ? ' choisi' : ''}" style="--t:${teinte(c)}" data-numero="${i + 1}">${i + 1}</button>`).join('')}</div>` +
-    `<p class="legende-filtre" style="margin:12px 0 4px">Les 12 étoiles</p>` +
-    `<div class="rangee-etoiles">${ce.map((c, i) => `<button class="boule etoile${etat.etoileChoisie === i + 1 ? ' choisi' : ''}" style="--t:${teinte(c)}" data-etoile="${i + 1}">${i + 1}</button>`).join('')}</div>`;
+    (JEU.nbEtoiles ? `<p class="legende-filtre" style="margin:12px 0 4px">Les 12 étoiles</p>` +
+      `<div class="rangee-etoiles">${ce.map((c, i) => `<button class="boule etoile${etat.etoileChoisie === i + 1 ? ' choisi' : ''}" style="--t:${teinte(c)}" data-etoile="${i + 1}">${i + 1}</button>`).join('')}</div>`
+      : '<p class="discret" style="margin-top:8px">Le Lotto n\'a pas d\'étoiles. Le numéro bonus est tiré dans la même machine que les 6 numéros : il compte dans la fiche de chaque numéro.</p>');
 }
 
 // Barres par année pour une étoile. La chance d'une étoile a changé avec les époques : la hauteur est un indice,
@@ -638,10 +655,10 @@ function ficheEtoileHtml(e) {
 
 function vueNumeros(racine) {
   const s = reglages.seuils;
-  racine.innerHTML = '<div class="carte" id="haut-numeros"><h2>Les 50 numéros et les 12 étoiles</h2><div class="puces filtres">' +
+  racine.innerHTML = `<div class="carte" id="haut-numeros"><h2>${JEU.nbEtoiles ? 'Les 50 numéros et les 12 étoiles' : `Les ${JEU.boules} numéros`}</h2><div class="puces filtres">` +
     Object.entries(MODES).map(([cle, x]) => `<button class="puce${cle === etat.mode ? ' actif' : ''}" data-mode="${cle}">${x.nom}</button>`).join('') + '</div>' +
     `<div id="plateau">${htmlPlateau()}</div>` +
-    '<p class="discret" style="margin-top:10px">Touchez un numéro ou une étoile pour ouvrir sa fiche.</p>' +
+    `<p class="discret" style="margin-top:10px">Touchez un numéro${JEU.nbEtoiles ? ' ou une étoile' : ''} pour ouvrir sa fiche.</p>` +
     '<details id="d-seuils"><summary>Régler les seuils du dégradé</summary>' +
     '<p class="discret">Les couleurs classent les numéros du plus froid (0 %) au plus chaud (100 %). En resserrant les seuils, seuls les extrêmes gardent une couleur franche.</p>' +
     `<div class="curseur"><span>Tout froid sous</span><input type="range" id="s-froid" min="0" max="90" step="5" value="${s.froid}"><span id="s-froid-v">${s.froid} %</span></div>` +
@@ -726,7 +743,7 @@ function carteInsolite(f) {
   const periodes = f.par_periode.length
     ? `<p><b>Sur deux périodes séparées.</b> ${f.par_periode.map((q) => `${q.nom} : ${nombre(q.obs, f.dec)} (${q.n} tirages)`).join(' ; ')}.</p>` : '';
   const exemples = f.exemples.length
-    ? '<h3>Derniers tirages concernés</h3>' + f.exemples.map((t) => `<p class="discret">${dateFr(t[0])}</p>${boulesGrille({ numeros: t.slice(1, 6), etoiles: t.slice(6, 8) })}`).join('') : '';
+    ? '<h3>Derniers tirages concernés</h3>' + f.exemples.map((t) => `<p class="discret">${dateFr(t[0])}</p>${boulesGrille({ numeros: numerosDe(t), etoiles: etoilesDe(t), bonus: bonusDe(t) })}`).join('') : '';
   return `<div class="carte"><h2>${f.numero} · ${f.titre}</h2><p class="definition-fiche">${f.definition ?? ''}</p><p class="discret">${f.fenetre} — ${cas(f)}</p>${corps}` +
     (f.complement ? `<p class="constat">${f.complement}</p>` : '') +
     `<p class="transparence statut-${f.statut}">${f.lecture}</p>` +
@@ -739,7 +756,7 @@ function carteInsolite(f) {
 const ENQUETES = {
   insolites: { nom: 'Dates insolites', accroche: 'Quinze curiosités du calendrier, testées avec le même sérieux que le reste. La machine ne connaît pas la date : le résultat attendu est « rien ».' },
   experiences: { nom: 'Expériences du labo', accroche: 'Trois expériences : la cloche de Gauss, la corde à nœuds et l\'indice de singularité. Chacune cherche une « force » qui ramènerait les tirages vers une moyenne ou un équilibre. Un tirage sans mémoire n\'en a aucune. Ces lois peuvent aussi servir à générer des grilles (onglet Grilles, « Tirage Labo / Expérimental »).' },
-  boulier: { nom: 'Anomalies du boulier', accroche: 'Quatorze pistes d\'enquête sur les numéros. Beaucoup cherchent « le cas le plus extrême » : parmi 1 225 paires ou 50 numéros, il y en a toujours un. Chaque record est donc comparé à celui que le hasard produit à lui seul.' },
+  boulier: { nom: 'Anomalies du boulier', get accroche() { return `Quatorze pistes d'enquête sur les numéros. Beaucoup cherchent « le cas le plus extrême » : parmi ${nombre(JEU.boules * (JEU.boules - 1) / 2)} paires ou ${JEU.boules} numéros, il y en a toujours un. Chaque record est donc comparé à celui que le hasard produit à lui seul.`; } },
 };
 
 function htmlEnquete(cle) {
@@ -763,15 +780,30 @@ function htmlRejeu() {
     '</table></div>' +
     `<p class="discret">Exemple : un joueur au hasard pur a joué ${nombre(R.grilles_par_joueur)} grilles pour ${nombre(R.cout_par_joueur)} € et en a récupéré environ ${nombre(R.cout_par_joueur * R.profils.hasard.retour / 100)} €.</p></div>` +
     '<div class="carte"><h2>À retenir</h2><ul>' +
-    '<li>Un tirage est un hasard sans mémoire : un numéro chaud ou en retard sort toujours environ 1 fois sur 10.</li>' +
+    `<li>Un tirage est un hasard sans mémoire : un numéro chaud ou en retard sort toujours environ ${chanceTexte().replace('1 sur 10', '1 fois sur 10').replace(' sur 100', ' fois sur 100')}.</li>` +
     '<li>Aucun style ne fait gagner plus souvent, et tous perdent de l\'argent en moyenne.</li>' +
     '<li>Seul le partage est réel : des numéros peu joués font toucher davantage <i>quand</i> on gagne.</li>' +
     `<li>D'après la règle du jeu, une grille quelconque gagne quelque chose ${nombre(R.part_gagnantes_theorique, 1)} fois sur 100, presque toujours un petit rang.</li></ul>` +
     '</div><div class="carte"><h2>Les cinq styles, un par un</h2>' +
-    ordre.map((c) => `<p class="definition"><b>${noms[c]} :</b> ${definitionStyle(c, DEFAUTS)}</p><p class="transparence"><b>Ce que le laboratoire a mesuré.</b> ${phraseProfil(c, R)}</p>`).join('') + '</div>' +
-    '<div class="carte"><h2>Le laboratoire complet</h2><p>Tous les tests, période par période : fréquences, retards, sommes, paires, ordre de sortie, mardi contre vendredi, partage des gains.</p>' +
-    '<p><a href="laboratoire.html">Ouvrir le laboratoire</a></p>' +
+    ordre.map((c) => `<p class="definition"><b>${noms[c]} :</b> ${definitionStyle(c, defautsDuJeu())}</p><p class="transparence"><b>Ce que le laboratoire a mesuré.</b> ${phraseProfil(c, R)}</p>`).join('') + '</div>' +
+    (JEU.laboratoire
+      ? '<div class="carte"><h2>Le laboratoire complet</h2><p>Tous les tests, période par période : fréquences, retards, sommes, paires, ordre de sortie, mardi contre vendredi, partage des gains.</p>' +
+        '<p><a href="laboratoire.html">Ouvrir le laboratoire</a></p>'
+      : htmlPartageLotto()) +
     `<p class="discret">Données : ${nombre(D.tirages.length)} tirages, du ${dateFr(D.tirages[0][0])} au ${dateFr(dernierTirage)}.</p></div>`;
+}
+
+// Lotto : le seul levier réel, le partage des gains, mesuré par le laboratoire et vérifié sur une autre période.
+function htmlPartageLotto() {
+  const P = D.partage, v = P.verification, pop = D.populaire.numeros;
+  const ordre = pop.map((x, i) => [i + 1, x]).filter((x) => x[1] !== null).sort((a, b) => a[1] - b[1]);
+  const liste = (l) => l.map(([n, x]) => `le ${n} (${signe(x, 0)} %)`).join(', ');
+  return '<div class="carte"><h2>Le partage des gains au Lotto</h2>' +
+    `<p>Aux rangs à gain partagé (5 bons numéros, 4 + bonus, 4, 3 + bonus), le laboratoire a mesuré sur ${nombre(P.nb_tirages)} tirages combien de gagnants il y a pour la même somme distribuée, selon les numéros sortis.</p>` +
+    `<p>Les plus joués : ${liste(ordre.slice(-5).reverse())} de gagnants en plus quand ils sortent. Les moins joués : ${liste(ordre.slice(0, 5))}.</p>` +
+    `<p class="transparence">Vérification : la popularité repérée sur les ${nombre(v.n_avant)} tirages d'avant le ${dateFr(v.coupure)} annonce bien le partage des ${nombre(v.n_apres)} tirages d'après ` +
+    `(corrélation ${nombre(v.correlation, 2)}). C'est un effet réel, mais il ne change pas la chance de gagner : il change seulement avec combien de personnes on partage.</p>` +
+    '<p class="discret">Le laboratoire complet (toutes les mesures période par période) n\'existe pour l\'instant que pour l\'EuroMillions.</p>';
 }
 
 function vueMesures(racine) {
@@ -787,12 +819,19 @@ function vueMesures(racine) {
 
 // ---------- Mon Labo : poser sa propre question ----------
 
-const EXEMPLES_LABO = [
+const EXEMPLES_LABO_EM = [
   'Les numéros pairs sortent-ils plus après 4 impairs ?',
   'La somme est-elle plus haute le mardi ?',
   'Le 7 sort-il plus après 2 tirages de suite avec au moins 3 pairs ?',
   'Y a-t-il plus de suites quand la somme dépasse 150 ?',
 ];
+const EXEMPLES_LABO_LOTTO = [
+  'Les numéros pairs sortent-ils plus après 5 impairs ?',
+  'La somme est-elle plus haute le mercredi ?',
+  'Le 7 sort-il plus après 2 tirages de suite avec au moins 4 pairs ?',
+  'Le bonus 13 sort-il plus quand la somme dépasse 160 ?',
+];
+const exemplesLabo = () => (JEU.bonus ? EXEMPLES_LABO_LOTTO : EXEMPLES_LABO_EM);
 
 // Le fil de la conversation : { de: 'vous' | 'labo', html }. Le test en attente de validation est dans etat.labo.spec.
 function dire(de, html) { etat.labo.fil.push({ de, html }); }
@@ -809,14 +848,15 @@ function htmlMenus(spec) {
   return '<div class="menus-labo"><h3>La situation de départ</h3>' +
     `<div class="ligne"><select id="l-avec"><option value="non"${c ? '' : ' selected'}>Aucune : tous les tirages</option><option value="oui"${c ? ' selected' : ''}>Un tirage où…</option></select></div>` +
     `<div class="ligne" id="l-condition"${c ? '' : ' hidden'}><select id="l-c-prop">${optionsProprietes(c?.prop ?? 'impairs')}</select>` +
-    `<label>n° <input type="number" id="l-c-param" min="1" max="50" value="${c?.param ?? 7}"></label>` +
-    `<select id="l-c-op">${ops(c?.op ?? '>=', false)}</select><input type="number" id="l-c-val" min="0" max="240" value="${c?.val ?? 4}">` +
+    `<label>n° <input type="number" id="l-c-param" min="1" max="${JEU.boules}" value="${c?.param ?? 7}"></label>` +
+    `<select id="l-c-op">${ops(c?.op ?? '>=', false)}</select><input type="number" id="l-c-val" min="0" max="${JEU.sommeBornes[1]}" value="${c?.val ?? 4}">` +
     `<label>pendant <input type="number" id="l-c-serie" min="1" max="10" value="${c?.serie ?? 1}"> tirage(s) de suite</label></div>` +
     `<div class="ligne" id="l-ou"${c ? '' : ' hidden'}><select id="l-decalage"><option value="1"${spec?.decalage === 0 ? '' : ' selected'}>Je regarde le tirage qui suit</option><option value="0"${spec?.decalage === 0 ? ' selected' : ''}>Je regarde ce même tirage</option></select></div>` +
     '<h3>Ce que je mesure</h3>' +
-    `<div class="ligne"><select id="l-m-prop">${optionsProprietes(m.prop)}</select><label>n° <input type="number" id="l-m-param" min="1" max="50" value="${m.param ?? 7}"></label></div>` +
-    `<div class="ligne"><select id="l-m-op">${ops(m.op, true)}</select><input type="number" id="l-m-val" min="0" max="240" value="${m.val ?? 3}"></div>` +
-    `<div class="ligne"><label>Jour <select id="l-jour"><option value="">mardi et vendredi</option><option value="mardi"${spec?.jour === 'mardi' ? ' selected' : ''}>mardi seulement</option><option value="vendredi"${spec?.jour === 'vendredi' ? ' selected' : ''}>vendredi seulement</option></select></label></div>` +
+    `<div class="ligne"><select id="l-m-prop">${optionsProprietes(m.prop)}</select><label>n° <input type="number" id="l-m-param" min="1" max="${JEU.boules}" value="${m.param ?? 7}"></label></div>` +
+    `<div class="ligne"><select id="l-m-op">${ops(m.op, true)}</select><input type="number" id="l-m-val" min="0" max="${JEU.sommeBornes[1]}" value="${m.val ?? 3}"></div>` +
+    `<div class="ligne"><label>Jour <select id="l-jour"><option value="">${JEU.nomsJours.join(' et ')}</option>` +
+    JEU.nomsJours.map((j) => `<option value="${j}"${spec?.jour === j ? ' selected' : ''}>${j} seulement</option>`).join('') + '</select></label></div>' +
     '<div class="ligne"><button class="bouton" id="l-menus-ok">Utiliser ces menus</button></div></div>';
 }
 
@@ -875,12 +915,12 @@ function vueMonLabo(racine) {
 
   racine.innerHTML = '<div class="carte famille famille-monlabo"><h2><span class="etiquette-famille">Mon Labo</span></h2>' +
     '<p>Posez votre propre question sur les tirages. L\'application vous redit ce qu\'elle a compris, vous validez, puis elle fait le calcul sur les vrais tirages et le compare au hasard.</p>' +
-    '<p class="transparence">Il n\'y a pas d\'intelligence artificielle ici : l\'application reconnaît des mots-clés (pairs, impairs, somme, suites, dizaines, « le numéro 7 », « après », « 3 tirages de suite », mardi…). ' +
+    `<p class="transparence">Il n'y a pas d'intelligence artificielle ici : l'application reconnaît des mots-clés (pairs, impairs, somme, suites, dizaines, « le numéro 7 »${JEU.bonus ? ', « le bonus 12 »' : ''}, « après », « 3 tirages de suite », ${JEU.nomsJours[0]}…). ` +
     'Si elle ne comprend pas, les menus font la même chose. Elle ne peut pas inventer un résultat : tout est calculé sur les tirages.' +
     (labo.essais ? ` Tests lancés jusqu'ici : <b>${labo.essais}</b>. Sur 20 tests d'un hasard parfait, 1 ressort en moyenne par pure chance.` : '') + '</p>' +
     `<div class="fil">${bulles}${attente}</div>${garder}` +
     '<div class="ligne"><input id="l-question" maxlength="200" placeholder="Votre question…" value=""><button class="bouton" id="l-envoyer">Envoyer</button></div>' +
-    `<details id="l-exemples"${L.fil.length ? '' : ' open'}><summary>Exemples de questions</summary><div class="puces">${EXEMPLES_LABO.map((e, i) => `<button class="puce" data-exemple="${i}">${e}</button>`).join('')}</div></details>` +
+    `<details id="l-exemples"${L.fil.length ? '' : ' open'}><summary>Exemples de questions</summary><div class="puces">${exemplesLabo().map((e, i) => `<button class="puce" data-exemple="${i}">${e}</button>`).join('')}</div></details>` +
     `<details id="l-menus"${L.menus ? ' open' : ''}><summary>Poser la question avec des menus</summary>${htmlMenus(L.spec ?? L.dernier?.spec)}</details></div>` +
     (labo.mesures.length ? `<div class="carte famille famille-monlabo"><h2>Mes mesures enregistrées (${labo.mesures.length})</h2>${gardees}</div>` : '');
 
@@ -894,7 +934,7 @@ function vueMonLabo(racine) {
   };
   $('l-envoyer').onclick = () => envoyer($('l-question').value);
   $('l-question').onkeydown = (e) => { if (e.key === 'Enter') envoyer($('l-question').value); };
-  racine.querySelectorAll('[data-exemple]').forEach((b) => { b.onclick = () => envoyer(EXEMPLES_LABO[Number(b.dataset.exemple)]); });
+  racine.querySelectorAll('[data-exemple]').forEach((b) => { b.onclick = () => envoyer(exemplesLabo()[Number(b.dataset.exemple)]); });
   if ($('l-valider')) $('l-valider').onclick = () => calculerLabo(L.spec, L.question);
   if ($('l-corriger')) $('l-corriger').onclick = () => { L.menus = true; afficher(); $('l-menus').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
   if ($('l-annuler')) $('l-annuler').onclick = () => { L.spec = null; dire('labo', '<p>D\'accord, je ne calcule rien. Reformulez ou utilisez les menus.</p>'); afficher(); };
@@ -912,7 +952,7 @@ function vueMonLabo(racine) {
   ['l-avec', 'l-c-prop', 'l-m-prop', 'l-m-op'].forEach((id) => { $(id).onchange = propager; });
   propager();
   $('l-menus-ok').onclick = () => {
-    // pour « le numéro 7 » ou « l'étoile 3 », la question est toujours : est-il sorti ?
+    // pour « le numéro 7 », « l'étoile 3 » ou « le bonus 12 », la question est toujours : est-il sorti ?
     const present = (prop) => Boolean(monLabo.PROPRIETES[$(prop).value].parametre);
     if (present('l-c-prop')) { $('l-c-op').value = '='; $('l-c-val').value = 1; }
     if (present('l-m-prop')) { $('l-m-op').value = '='; $('l-m-val').value = 1; }
@@ -963,7 +1003,8 @@ function vueReglages(racine) {
     '<div class="ligne"><button class="bouton" id="p-defaut">Revenir aux couleurs du thème</button></div>' +
     '<p class="discret">Les seuils du dégradé froid → chaud se règlent dans l\'onglet Numéros.</p></div>' +
     '<div class="carte"><h2>À propos</h2><p>La Bise fonctionne sans connexion une fois installée. Vos réglages, vos formules, vos mesures et votre carnet restent sur cet appareil ; rien n\'est envoyé.</p>' +
-    `<p class="discret">Données du ${dateFr(D.genere_le)}.</p><div class="ligne"><button class="bouton" id="p-mentions">Mentions légales et prévention</button></div></div>`;
+    '<p class="discret">Le thème et les couleurs valent pour les deux jeux. Les styles, les fétiches, les formules, le carnet et les mesures de Mon Labo sont propres à chaque jeu.</p>' +
+    `<p class="discret">Données ${JEU.nom} du ${dateFr(D.genere_le)}.</p><div class="ligne"><button class="bouton" id="p-mentions">Mentions légales et prévention</button></div></div>`;
   racine.querySelectorAll('[data-theme-choix]').forEach((b) => {
     b.onclick = () => { reglages.theme = b.dataset.themeChoix; reglages.themeChoisi = true; memoriser(); habiller(); afficher(); };
   });
@@ -996,8 +1037,46 @@ function mentions(premiereFois) {
 
 const VUES = { grilles: vueGrilles, carnet: vueCarnet, numeros: vueNumeros, mesures: vueMesures, reglages: vueReglages };
 
+// Les deux grands onglets du haut : EuroMillions et Lotto belge, complètement séparés.
+function htmlJeux() {
+  return Object.values(JEUX).map((j) => `<button role="tab" class="${j.cle === JEU.cle ? 'actif' : ''}" data-jeu="${j.cle}" aria-selected="${j.cle === JEU.cle}">${j.onglet}</button>`).join('');
+}
+
+async function chargerDonnees() {
+  if (!DONNEES[JEU.cle]) DONNEES[JEU.cle] = await (await fetch(JEU.fichier)).json();
+  D = DONNEES[JEU.cle];
+  memoFrequence = null;
+  indexDates = carnetOutils.indexParDate(D);
+  dernierTirage = D.tirages[D.tirages.length - 1][0];
+  ctx = construireContexte();
+  $('sous-titre').textContent = `${JEU.nom} · ${nombre(D.tirages.length)} tirages analysés · dernier : ${dateFr(dernierTirage)}`;
+}
+
+// Change de jeu : ses données, ses réglages de jeu, ses formules, son carnet et ses mesures. L'apparence ne bouge pas.
+async function changerJeu(cle) {
+  if (cle === JEU.cle) return;
+  choisirJeu(cle);
+  try { stockage.setItem(CLE_JEU, JSON.stringify(JEU.cle)); } catch { /* sans mémoire, on continue */ }
+  reglages = charger(stockage);
+  formules = formuleOutils.charger(stockage);
+  carnet = carnetOutils.charger(stockage);
+  labo = monLabo.charger(stockage);
+  Object.assign(etat, { grilles: [], choisi: null, etoileChoisie: null, rejeu: null, message: '', rapide: false,
+    labo: { fil: [], spec: null, question: '', dernier: null, menus: false } });
+  $('jeux').innerHTML = htmlJeux();
+  $('vue').innerHTML = '<p class="discret">Chargement…</p>';
+  try { await chargerDonnees(); } catch {
+    $('vue').innerHTML = '<div class="carte"><p>Les données n\'ont pas pu être chargées. Vérifiez la connexion, puis rouvrez l\'application.</p></div>';
+    return;
+  }
+  afficher();
+  window.scrollTo(0, 0);
+}
+
 function afficher() {
   document.body.classList.toggle('rapide', etat.rapide && etat.vue === 'grilles');
+  $('jeux').innerHTML = htmlJeux();
+  $('jeux').querySelectorAll('[data-jeu]').forEach((b) => { b.onclick = () => changerJeu(b.dataset.jeu); });
   $('menu').innerHTML = MENU.map(([cle, nom]) => `<button class="${cle === etat.vue ? 'actif' : ''}" data-vue="${cle}">${nom}</button>`).join('');
   $('menu').querySelectorAll('[data-vue]').forEach((b) => { b.onclick = () => { etat.vue = b.dataset.vue; history.replaceState(null, '', '#' + etat.vue); afficher(); window.scrollTo(0, 0); }; });
   VUES[etat.vue]($('vue'));
@@ -1006,26 +1085,29 @@ function afficher() {
 async function demarrer() {
   // Aperçu pour les captures d'écran de contrôle : index.html?apercu=synthwave montre un thème sans rien enregistrer.
   const parametres = new URLSearchParams(location.search), apercu = parametres.get('apercu');
+  // « ?jeu=lotto » ouvre directement le Lotto belge (raccourci de l'icône, captures d'écran)
+  if (JEUX[parametres.get('jeu')]) {
+    choisirJeu(parametres.get('jeu'));
+    if (apercu === null) { try { stockage.setItem(CLE_JEU, JSON.stringify(JEU.cle)); } catch { /* sans mémoire */ } }
+    reglages = charger(stockage); formules = formuleOutils.charger(stockage); carnet = carnetOutils.charger(stockage); labo = monLabo.charger(stockage);
+  }
   if (apercu !== null) {
     stockage = { getItem: () => null, setItem: () => {} };
     reglages = { ...reglages, theme: THEMES[apercu] ? apercu : reglages.theme, themeChoisi: true, mentionsAcceptees: true };
   }
   habiller();
+  $('jeux').innerHTML = htmlJeux();
   try {
-    D = await (await fetch('donnees.json')).json();
+    await chargerDonnees();
   } catch {
     $('vue').innerHTML = '<div class="carte"><p>Les données n\'ont pas pu être chargées. Vérifiez la connexion, puis rouvrez l\'application.</p></div>';
     return;
   }
-  ctx = construireContexte();
-  indexDates = carnetOutils.indexParDate(D);
-  dernierTirage = D.tirages[D.tirages.length - 1][0];
-  $('sous-titre').textContent = `${nombre(D.tirages.length)} tirages analysés · dernier : ${dateFr(dernierTirage)}`;
   const [vue, option] = location.hash.slice(1).split('-');
   if (VUES[vue]) etat.vue = vue;
   [vue, option].filter((x) => ENQUETES[x] || x === 'monlabo').forEach((x) => { etat.vue = 'mesures'; etat.sousVue = x; });
-  if (vue === 'numeros' && Number(option) >= 1 && Number(option) <= 50) etat.choisi = Number(option);
-  if (vue === 'etoile' && Number(option) >= 1 && Number(option) <= 12) { etat.vue = 'numeros'; etat.etoileChoisie = Number(option); }
+  if (vue === 'numeros' && Number(option) >= 1 && Number(option) <= JEU.boules) etat.choisi = Number(option);
+  if (vue === 'etoile' && JEU.nbEtoiles && Number(option) >= 1 && Number(option) <= 12) { etat.vue = 'numeros'; etat.etoileChoisie = Number(option); }
   // « ?rapide » (raccourci de l'icône) ouvre directement le mode rapide et génère
   if (parametres.has('rapide') && reglages.mentionsAcceptees) { etat.vue = 'grilles'; etat.rapide = true; }
   if (apercu !== null && option === 'demo') {
@@ -1035,7 +1117,15 @@ async function demarrer() {
         mode: parametres.get('mode'), lois: { gauss: true, entropie: true }, style: parametres.get('style') || reglages.style });
       ctx = construireContexte();
     }
-    if (vue === 'carnet') {
+    if (vue === 'carnet' && JEU.bonus) {
+      // Lotto : une grille avec deux numéros du dernier tirage et son bonus, une grille en attente
+      const exemple = D.tirages[D.tirages.length - 1], sortis = numerosDe(exemple);
+      const autres = [30, 31, 32, 33, 34, 35, 36].filter((n) => !sortis.includes(n) && n !== bonusDe(exemple)).slice(0, 3);
+      const grille = { numeros: [3, 17, 28, 33, 41, 44], etoiles: [] };
+      carnet = [carnetOutils.preparer([sortis[0], sortis[1], bonusDe(exemple), ...autres], [], exemple[0]),
+        carnetOutils.preparer(grille.numeros, [], carnetOutils.prochainTirage(aujourdhui()))].filter((e) => typeof e !== 'string');
+      etat.rejeu = { grille, resultat: rejouer(grille, D) };
+    } else if (vue === 'carnet') {
       const exemple = D.tirages[D.tirages.length - 1];
       carnet = [carnetOutils.preparer([exemple[1], exemple[2], 30, 40, 50], [exemple[6], 12], exemple[0]), carnetOutils.preparer([3, 17, 28, 41, 49], [2, 11], carnetOutils.prochainTirage(aujourdhui()))].filter((e) => typeof e !== 'string');
       etat.rejeu = { grille: { numeros: [3, 17, 28, 41, 49], etoiles: [2, 11] }, resultat: rejouer({ numeros: [3, 17, 28, 41, 49], etoiles: [2, 11] }, D) };
@@ -1043,7 +1133,7 @@ async function demarrer() {
   }
   if (apercu !== null && location.hash.endsWith('monlabo-demo')) {
     // démonstration pour les captures d'écran : la question d'exemple, déjà calculée (rien n'est enregistré)
-    const question = EXEMPLES_LABO[0], spec = monLabo.interpreter(question).spec, r = monLabo.tester(spec, D.tirages);
+    const question = exemplesLabo()[0], spec = monLabo.interpreter(question).spec, r = monLabo.tester(spec, D.tirages);
     dire('vous', `<p>${question}</p>`);
     dire('labo', `<p><b>Voici ce que j'ai compris.</b> ${monLabo.decrire(spec, D.tirages.length)}</p>`);
     labo = { ...labo, essais: 1 };

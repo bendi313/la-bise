@@ -1,10 +1,13 @@
 // Export des grilles générées, en CSV (pour un tableur) ou en JSON.
 
+import { JEU } from './jeu.js';
+
 const arrondi = (x) => (x === null || x === undefined ? '' : Math.round(x * 10) / 10);
 
 // Séparateur point-virgule et virgule décimale : s'ouvre tel quel dans un tableur réglé en français.
 export function versCSV(grilles) {
-  const lignes = ['grille;n1;n2;n3;n4;n5;etoile1;etoile2;respect_des_reglages_pct;effet_partage_gain_pct'];
+  const colonnes = [...Array.from({ length: JEU.k }, (_, i) => `n${i + 1}`), ...Array.from({ length: JEU.nbEtoiles }, (_, i) => `etoile${i + 1}`)];
+  const lignes = [['grille', ...colonnes, 'respect_des_reglages_pct', 'effet_partage_gain_pct'].join(';')];
   grilles.forEach((g, i) => {
     lignes.push([i + 1, ...g.numeros, ...g.etoiles, arrondi(g.respect), arrondi(g.partage.gain)]
       .map((v) => String(v).replace('.', ',')).join(';'));
@@ -15,6 +18,7 @@ export function versCSV(grilles) {
 export function versJSON(grilles, reglages) {
   return JSON.stringify({
     avertissement: 'Toutes les grilles ont la même chance de gagner. Les réglages décrivent un style, pas une prévision.',
+    jeu: JEU.nom,
     reglages: { poids: reglages.poids, fenetreChaud: reglages.fenetreChaud, sommeMin: reglages.sommeMin, sommeMax: reglages.sommeMax },
     grilles: grilles.map((g) => ({
       numeros: g.numeros, etoiles: g.etoiles,
@@ -35,8 +39,8 @@ export function versTicket(grilles, dateFr) {
     '      GRILLES A RECOPIER',
     `      editees le ${dateFr}`,
     trait,
-    ' N   NUMEROS          ETOILES',
-    ...grilles.map((g, i) => `${String(i + 1).padStart(3, '0')}  ${g.numeros.map(deux).join(' ')}   * ${g.etoiles.map(deux).join(' ')}`),
+    JEU.nbEtoiles ? ' N   NUMEROS          ETOILES' : ` N   NUMEROS (${JEU.nom.toUpperCase()})`,
+    ...grilles.map((g, i) => `${String(i + 1).padStart(3, '0')}  ${g.numeros.map(deux).join(' ')}${g.etoiles.length ? `   * ${g.etoiles.map(deux).join(' ')}` : ''}`),
     trait,
     `${grilles.length} grille${grilles.length > 1 ? 's' : ''}`,
     'SANS VALEUR : CE N\'EST PAS UN',

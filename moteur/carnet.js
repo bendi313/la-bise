@@ -3,18 +3,19 @@
 import { lire, ecrire } from './reglages.js';
 import { cleGrille } from './generateur.js';
 import { evaluer, prix, jouable } from './rejeu.js';
+import { JEU } from './jeu.js';
 
-const CLE_STOCKAGE = 'labise-carnet';
+const cleStockage = () => JEU.prefixe + 'carnet';
 export const CARNET_MAX = 500;
 
 const iso = (d) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-const jourSemaine = (jour) => new Date(jour + 'T12:00:00Z').getUTCDay();          // 2 = mardi, 5 = vendredi
-export const estJourDeTirage = (jour) => [2, 5].includes(jourSemaine(jour));
+const jourSemaine = (jour) => new Date(jour + 'T12:00:00Z').getUTCDay();          // 2 = mardi, 5 = vendredi (3 = mercredi, 6 = samedi au Lotto)
+export const estJourDeTirage = (jour) => JEU.joursTirage.includes(jourSemaine(jour));
 
-// Le prochain mardi ou vendredi, le jour même compris.
+// Le prochain jour de tirage (mardi ou vendredi ; mercredi ou samedi au Lotto), le jour même compris.
 export function prochainTirage(aujourdhui) {
   const d = new Date(aujourdhui + 'T12:00:00Z');
-  while (![2, 5].includes(d.getUTCDay())) d.setUTCDate(d.getUTCDate() + 1);
+  while (!JEU.joursTirage.includes(d.getUTCDay())) d.setUTCDate(d.getUTCDate() + 1);
   return iso(d);
 }
 
@@ -23,11 +24,11 @@ const distincts = (liste, combien, max) => Array.isArray(liste) && liste.length 
 
 // Renvoie l'entrée propre { id, numeros, etoiles, date }, ou un texte qui dit ce qui ne va pas.
 export function preparer(numeros, etoiles, date) {
-  if (!distincts(numeros, 5, 50)) return 'Il faut 5 numéros différents entre 1 et 50.';
-  if (!distincts(etoiles, 2, 12)) return 'Il faut 2 étoiles différentes entre 1 et 12.';
+  if (!distincts(numeros, JEU.k, JEU.boules)) return `Il faut ${JEU.k} numéros différents entre 1 et ${JEU.boules}.`;
+  if (!distincts(etoiles ?? [], JEU.nbEtoiles, JEU.etoilesMax)) return JEU.nbEtoiles ? `Il faut ${JEU.nbEtoiles} étoiles différentes entre 1 et ${JEU.etoilesMax}.` : 'Le Lotto n\'a pas d\'étoiles.';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '') || Number.isNaN(Date.parse(date))) return 'La date du tirage est illisible.';
-  if (!estJourDeTirage(date)) return 'Cette date n\'est ni un mardi ni un vendredi : pas de tirage ce jour-là.';
-  const grille = { numeros: [...numeros].sort((a, b) => a - b), etoiles: [...etoiles].sort((a, b) => a - b) };
+  if (!estJourDeTirage(date)) return `Cette date n'est ni un ${JEU.nomsJours[0]} ni un ${JEU.nomsJours[1]} : pas de tirage ce jour-là.`;
+  const grille = { numeros: [...numeros].sort((a, b) => a - b), etoiles: [...(etoiles ?? [])].sort((a, b) => a - b) };
   if (!jouable(grille, date)) return 'À cette date, ces étoiles n\'existaient pas encore.';
   return { id: `${date}|${cleGrille(grille)}`, ...grille, date };
 }
@@ -69,7 +70,7 @@ const propre = (e) => {
 };
 
 export const charger = (stockage) => {
-  const liste = lire(stockage, CLE_STOCKAGE, []);
+  const liste = lire(stockage, cleStockage(), []);
   return (Array.isArray(liste) ? liste : []).map(propre).filter(Boolean);
 };
-export const sauver = (stockage, carnet) => ecrire(stockage, CLE_STOCKAGE, carnet);
+export const sauver = (stockage, carnet) => ecrire(stockage, cleStockage(), carnet);

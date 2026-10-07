@@ -1,4 +1,7 @@
 // Les réglages de l'utilisateur : tout est modifiable, rien n'est imposé.
+// Chaque jeu (EuroMillions, Lotto) a ses propres réglages de jeu ; l'apparence (thème, couleurs, seuils) est commune.
+
+import { JEU, JEUX } from './jeu.js';
 
 export const PROFILS = [
   { cle: 'hasard', nom: 'Hasard pur', poids: { chaud: 0, froid: 0, harmonique: 0, antiFoule: 0 } },
@@ -23,7 +26,7 @@ export const AFFICHAGES = ['moderne', 'ticket'];
 export const DEFAUTS = {
   poids: { chaud: 0, froid: 0, harmonique: 0, antiFoule: 100 },
   fenetreChaud: 20,      // « chaud » = souvent sorti sur ces N derniers tirages
-  sommeMin: 90,          // profil harmonique : somme des 5 numéros entre ces deux bornes
+  sommeMin: 90,          // profil harmonique : somme des 5 numéros entre ces deux bornes (au Lotto : des 6 numéros, de 100 à 175)
   sommeMax: 160,
   nombre: 5,             // grilles à générer
   fetiches: [],          // jusqu'à 3 numéros fétiches
@@ -43,12 +46,17 @@ export const DEFAUTS = {
 // Les six styles du jeu classique : cinq styles purs, et « Mon mélange », le seul qui a des réglages fins.
 export const MELANGE = 'melange';
 export const STYLES = [...PROFILS.map((p) => p.cle), MELANGE];
-const MELANGE_DEFAUT = { poids: { chaud: 0, froid: 0, harmonique: 50, antiFoule: 50 }, fenetreChaud: 20, sommeMin: 90, sommeMax: 160, fetiches: [], dosage: 'modere' };
+const melangeDefaut = () => ({ poids: { chaud: 0, froid: 0, harmonique: 50, antiFoule: 50 }, fenetreChaud: 20, sommeMin: JEU.sommeMin, sommeMax: JEU.sommeMax, fetiches: [], dosage: 'modere' });
+// Les valeurs par défaut qui dépendent du jeu : la plage de somme du style harmonique.
+export const defautsDuJeu = () => ({ ...DEFAUTS, sommeMin: JEU.sommeMin, sommeMax: JEU.sommeMax });
+// Ce qui est commun aux deux jeux : l'apparence et l'accord aux mentions.
+export const PARTAGES = ['theme', 'themeChoisi', 'perso', 'seuils', 'mentionsAcceptees'];
 
 const COULEURS = Object.keys(DEFAUTS.perso).filter((c) => c !== 'lueur');
 const ECART_SEUILS = 10;              // les deux seuils restent séparés d'au moins 10 points
 
-const CLE_STOCKAGE = 'labise-reglages';
+const CLE_COMMUNE = JEUX.euromillions.prefixe + 'reglages';      // les réglages de l'EuroMillions portent aussi l'apparence
+const cleStockage = () => JEU.prefixe + 'reglages';
 
 function borner(x, min, max, defaut) {
   const v = Number(x);
@@ -57,17 +65,17 @@ function borner(x, min, max, defaut) {
 
 const estCouleur = (c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c);
 
-// Jusqu'à 3 numéros différents entre 1 et 50, triés ; tout le reste est ignoré.
+// Jusqu'à 3 numéros différents entre 1 et 50 (45 au Lotto), triés ; tout le reste est ignoré.
 export function validerFetiches(liste) {
-  const propres = (Array.isArray(liste) ? liste : []).map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= 50);
+  const propres = (Array.isArray(liste) ? liste : []).map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= JEU.boules);
   return [...new Set(propres)].slice(0, FETICHES_MAX).sort((a, b) => a - b);
 }
 
 // Les réglages fins de « Mon mélange » (et d'une formule enregistrée) : poids des critères, fenêtre, somme, fétiches.
-export function validerMelange(m = {}, defaut = MELANGE_DEFAUT) {
-  const poids = {};
+export function validerMelange(m = {}, defaut = melangeDefaut()) {
+  const poids = {}, [bas, haut] = JEU.sommeBornes;
   Object.keys(DEFAUTS.poids).forEach((cle) => { poids[cle] = borner(m?.poids?.[cle], 0, 100, defaut.poids[cle]); });
-  let sommeMin = borner(m?.sommeMin, 15, 240, defaut.sommeMin), sommeMax = borner(m?.sommeMax, 15, 240, defaut.sommeMax);
+  let sommeMin = borner(m?.sommeMin, bas, haut, defaut.sommeMin), sommeMax = borner(m?.sommeMax, bas, haut, defaut.sommeMax);
   if (sommeMin > sommeMax) [sommeMin, sommeMax] = [sommeMax, sommeMin];
   return { poids, fenetreChaud: borner(m?.fenetreChaud, 5, 200, defaut.fenetreChaud), sommeMin, sommeMax,
     fetiches: validerFetiches(m?.fetiches), dosage: DOSAGES[m?.dosage] ? m.dosage : defaut.dosage };
@@ -77,9 +85,9 @@ const memesPoids = (a, b) => Object.keys(DEFAUTS.poids).every((c) => a[c] === b[
 
 // Remet des réglages quelconques (anciens, incomplets, abîmés) dans les bornes.
 export function valider(r = {}) {
-  const poids = {};
+  const poids = {}, [bas, haut] = JEU.sommeBornes, D = defautsDuJeu();
   Object.keys(DEFAUTS.poids).forEach((cle) => { poids[cle] = borner(r.poids?.[cle], 0, 100, DEFAUTS.poids[cle]); });
-  let sommeMin = borner(r.sommeMin, 15, 240, DEFAUTS.sommeMin), sommeMax = borner(r.sommeMax, 15, 240, DEFAUTS.sommeMax);
+  let sommeMin = borner(r.sommeMin, bas, haut, D.sommeMin), sommeMax = borner(r.sommeMax, bas, haut, D.sommeMax);
   if (sommeMin > sommeMax) [sommeMin, sommeMax] = [sommeMax, sommeMin];
   // Le style choisi. Des réglages d'une ancienne version n'en ont pas : on le retrouve d'après leurs poids,
   // et un ancien mélange personnel devient le contenu de « Mon mélange ».
@@ -126,7 +134,7 @@ export function effectifs(reglages) {
   const classique = { ...reglages, lois: { ...DEFAUTS.lois }, loisPerso: [] };
   if (reglages.style === MELANGE) return { ...classique, ...validerMelange(reglages.melange) };
   const profil = PROFILS.find((p) => p.cle === reglages.style) || PROFILS.find((p) => p.cle === 'antiFoule');
-  return { ...classique, poids: { ...profil.poids }, fenetreChaud: DEFAUTS.fenetreChaud, sommeMin: DEFAUTS.sommeMin, sommeMax: DEFAUTS.sommeMax };
+  return { ...classique, poids: { ...profil.poids }, fenetreChaud: DEFAUTS.fenetreChaud, sommeMin: JEU.sommeMin, sommeMax: JEU.sommeMax };
 }
 
 // Le profil tout prêt qui correspond aux poids, ou « mixte » si l'utilisateur a fait son propre mélange.
@@ -151,5 +159,18 @@ export function ecrire(stockage, cle, valeur) {
   try { stockage.setItem(cle, JSON.stringify(valeur)); } catch { /* stockage indisponible : on continue sans mémoire */ }
 }
 
-export const charger = (stockage) => valider(lire(stockage, CLE_STOCKAGE, {}));
-export const sauver = (stockage, reglages) => ecrire(stockage, CLE_STOCKAGE, valider(reglages));
+// Les réglages du jeu en cours, avec l'apparence commune (rangée avec ceux de l'EuroMillions).
+export function charger(stockage) {
+  const propres = lire(stockage, cleStockage(), {}), communs = lire(stockage, CLE_COMMUNE, {});
+  const apparence = Object.fromEntries(PARTAGES.filter((c) => communs?.[c] !== undefined).map((c) => [c, communs[c]]));
+  return valider({ ...(propres && typeof propres === 'object' ? propres : {}), ...apparence });
+}
+
+export function sauver(stockage, reglages) {
+  const propres = valider(reglages);
+  ecrire(stockage, cleStockage(), propres);
+  if (cleStockage() !== CLE_COMMUNE) {
+    const communs = lire(stockage, CLE_COMMUNE, {});
+    ecrire(stockage, CLE_COMMUNE, { ...(communs && typeof communs === 'object' ? communs : {}), ...Object.fromEntries(PARTAGES.map((c) => [c, propres[c]])) });
+  }
+}

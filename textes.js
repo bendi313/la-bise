@@ -1,5 +1,7 @@
 // Les phrases de transparence : ce que le laboratoire a mesuré pour chaque profil, affiché en permanence.
 
+import { JEU, chanceTexte } from './moteur/jeu.js';
+
 export function nombre(x, dec = 0) {
   if (x === null || x === undefined || Number.isNaN(x)) return '—';
   if (Math.abs(x) < 0.5 * 10 ** -dec) x = 0;          // évite d'afficher « -0,00 »
@@ -12,16 +14,17 @@ export const dateFr = (iso) => iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + 
 
 // Ce que fait chaque style, en clair, avec un exemple. `r` : les réglages en cours (fenêtre du « chaud », plage de somme).
 export function definitionStyle(cle, r) {
+  const boules = JEU.nbEtoiles ? 'les numéros et les étoiles' : 'les numéros';
   return {
     hasard: 'Des grilles tirées entièrement au hasard, sans aucun critère. C\'est le point de comparaison de tous les autres styles.',
-    chaud: `Choisit de préférence les numéros et les étoiles sortis le plus souvent sur les ${r.fenetreChaud} derniers tirages. ` +
+    chaud: `Choisit de préférence ${boules} sortis le plus souvent sur les ${r.fenetreChaud} derniers tirages. ` +
       `Exemple : un numéro sorti 4 fois en ${r.fenetreChaud} tirages est « sur la vague » ; un numéro sorti 0 fois ne l'est pas.`,
-    froid: 'Choisit de préférence les numéros et les étoiles qui ne sont plus sortis depuis le plus longtemps. ' +
+    froid: `Choisit de préférence ${boules} qui ne sont plus sortis depuis le plus longtemps. ` +
       'Exemple : un numéro absent depuis 40 tirages passe avant un numéro sorti la semaine dernière.',
-    harmonique: `Garde les grilles « équilibrées » : la somme des 5 numéros entre ${r.sommeMin} et ${r.sommeMax}, et 2 ou 3 numéros pairs. ` +
-      'Exemple : 7, 19, 24, 33, 46 (somme 129, deux pairs) est gardée ; 1, 2, 3, 4, 5 (somme 15) ne l\'est pas.',
+    harmonique: `Garde les grilles « équilibrées » : la somme des ${JEU.k} numéros entre ${r.sommeMin} et ${r.sommeMax}, et ${JEU.pairsTexte}. ` +
+      JEU.exempleHarmonique,
     antiFoule: 'Évite les numéros que beaucoup de gens jouent — surtout ceux de 1 à 31, qui servent de dates de naissance, et le 7 — ' +
-      'pour partager avec moins de monde en cas de gain. Exemple : 32, 38, 41, 46, 49 plutôt que 3, 7, 11, 19, 25.',
+      `pour partager avec moins de monde en cas de gain. Exemple : ${JEU.exempleAntiFoule}.`,
   }[cle];
 }
 
@@ -51,7 +54,7 @@ export function phraseFetiches(fetiches, populaire) {
   const liste = (l) => (l.length > 1 ? l.slice(0, -1).map((n) => `le ${n}`).join(', ') + ` et le ${l[l.length - 1]}` : `le ${l[0]}`);
   const majuscule = (s) => s[0].toUpperCase() + s.slice(1);
   return `Numéro${fetiches.length > 1 ? 's' : ''} fétiche${fetiches.length > 1 ? 's' : ''} : un choix personnel. ` +
-    `${majuscule(liste(fetiches))} ${fetiches.length > 1 ? 'ont' : 'a'} exactement la même chance de sortir que les autres numéros : 1 sur 10 à chaque tirage.` +
+    `${majuscule(liste(fetiches))} ${fetiches.length > 1 ? 'ont' : 'a'} exactement la même chance de sortir que les autres numéros : ${chanceTexte()} à chaque tirage.` +
     (tres.length ? ` À savoir : ${liste(tres)} ${tres.length > 1 ? 'sont' : 'est'} très joué${tres.length > 1 ? 's' : ''} par la foule, donc plus de partage ${tres.length > 1 ? 's\'ils sortent' : 's\'il sort'}.` : '');
 }
 
@@ -59,7 +62,7 @@ export const MENTIONS = [
   'La Bise est une application d\'analyse statistique et de génération de grilles selon vos préférences. Elle décrit le passé ; elle ne prédit aucun tirage.',
   'Chaque grille a exactement la même chance de gagner, quels que soient les réglages. Aucune garantie de gain n\'est offerte.',
   'Le jeu est perdant en moyenne. Les jeux d\'argent comportent des risques : endettement, dépendance, isolement. Ne jouez que ce que vous pouvez perdre.',
-  'La Bise n\'est affiliée ni à la FDJ, ni à la Loterie Nationale, ni aux organisateurs de l\'EuroMillions. Les tirages viennent des archives publiques de la FDJ ; vérifiez toujours vos résultats auprès de votre loterie.',
+  'La Bise n\'est affiliée ni à la FDJ, ni à la Loterie Nationale, ni aux organisateurs de l\'EuroMillions. Les tirages viennent des archives publiques de la FDJ (EuroMillions) et des résultats publiés par la Loterie Nationale (Lotto) ; vérifiez toujours vos résultats auprès de votre loterie.',
   'Application réservée aux personnes majeures.',
   'Besoin d\'aide ? Belgique : SOS Jeux, 0800 35 777 (gratuit, 24 h/24). France : Joueurs Info Service, 09 74 75 13 13.',
 ];
