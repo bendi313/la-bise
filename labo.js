@@ -275,3 +275,40 @@ export function enquetesDeLEtoile(etoile, donnees) {
 }
 
 export const pourcent = (c) => (c.tirages ? (100 * c.sorties) / c.tirages : null);
+
+// ---------- Le palmarès des curiosités ----------
+
+// Les phrases de synthèse du palmarès. P : le résultat de eurom/palmares.py (pour le jeu affiché).
+// Chaque affirmation est comparée à ce que donnent les faux historiques tirés au hasard.
+export function phrasesPalmares(P) {
+  const classement = [...P.numeros].sort((a, b) => b.total - a.total || a.n - b.n);
+  const premiers = classement.filter((x) => x.total === classement[0].total).map((x) => x.n);
+  const dans = (q) => q.p >= 0.05;
+  const zone = (q, dec = 1) => {
+    const d = Number.isInteger(q.bas) && Number.isInteger(q.haut) ? 0 : dec;     // des comptes : bornes entières
+    return `en moyenne ${fr(q.att, dec)}, et entre ${fr(q.bas, d)} et ${fr(q.haut, d)} dans 19 cas sur 20`;
+  };
+  const liste = (l) => (l.length > 1 ? l.slice(0, -1).map((n) => `le ${n}`).join(', ') + ` et le ${l[l.length - 1]}` : `le ${l[0]}`);
+  const tete = `En tête : ${liste(premiers)}, avec ${fois(P.max.obs).replace(' fois', '')} « oui » sur ${P.nb_analyses} analyses. ` +
+    `Dans un historique tiré au hasard, le premier du classement en a ${zone(P.max)}. ` +
+    (dans(P.max) ? 'Le premier de notre classement est donc dans la norme : il fallait bien que l\'un des numéros soit en tête.'
+      : `C'est plus que ce que le hasard donne d'ordinaire (${fr(P.max.p * 100)} faux historiques sur 100 font autant).`);
+  const concentration = 'Les mêmes numéros reviennent-ils d\'une analyse à l\'autre plus que le hasard ne le veut ? ' +
+    `On mesure à quel point les « oui » s'entassent sur quelques numéros (écart-type : ${fr(P.concentration.obs, 2)} ; le hasard donne ${zone(P.concentration, 2)}). ` +
+    (dans(P.concentration) ? 'Réponse : non, les « oui » sont répartis comme le hasard les répartit.'
+      : 'Réponse : oui, ils s\'entassent plus que d\'ordinaire. C\'est inhabituel, mais cela ne prouve rien à lui seul.');
+  const frequence = 'Les numéros les plus chargés sont-ils simplement ceux qui sont sortis beaucoup plus, ou beaucoup moins, que les autres ? ' +
+    `Le lien mesuré vaut ${fr(P.frequence.obs, 2)} (0 = aucun lien, 1 = lien parfait). ` +
+    `Mais plusieurs analyses mesurent la même chose sous des angles différents (sorties, meilleure année, part du ${JEU.nomsJours[0]}…) : ` +
+    `le hasard produit donc déjà ce lien, ${zone(P.frequence, 2)}. ` +
+    (dans(P.frequence) ? 'Le lien observé est de la taille habituelle : un numéro un peu plus ou un peu moins sorti « collectionne » naturellement les « oui ».'
+      : 'Le lien observé sort de l\'habitude.');
+  const E = P.ensemble;
+  const total = `Au total, ${fr(E.obs)} « oui » sur ${fr(P.nb_analyses * P.nb_numeros)} cases ; le hasard en donne ${zone(E)}. ` +
+    (dans(E) ? 'Le total est dans la norme.' : 'C\'est plus que d\'ordinaire : à revoir quand de nouveaux tirages seront arrivés.');
+  const hors = [E, P.max, P.concentration, P.frequence].filter((q) => !dans(q)).length;
+  const verdict = !hors
+    ? 'Verdict : ce palmarès est celui que le hasard dessine. Il y a toujours des numéros en tête et des numéros à zéro ; aucun ne « mérite » sa place. Il ne dit pas quoi jouer.'
+    : `Verdict : ${hors} des 4 tests sort${hors > 1 ? 'ent' : ''} de l'ordinaire. Sur 4 tests, au moins un le fait par pure chance environ une fois sur cinq : à vérifier quand de nouveaux tirages seront arrivés. Il ne dit pas quoi jouer.`;
+  return { tete, concentration, frequence, total, verdict, classement };
+}

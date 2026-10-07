@@ -9,7 +9,7 @@ import { rejouer } from './moteur/rejeu.js';
 import * as carnetOutils from './moteur/carnet.js';
 import * as formuleOutils from './moteur/decks.js';
 import { THEMES, CATEGORIES, COULEURS_PERSO, appliquer, palette, couleurThermique } from './themes.js';
-import { ficheNumero, ficheEtoile, enquetesDeLEtoile, pourcent, jauge, enquetesDuNumero, bilanEnquetes, resumeFiche } from './labo.js';
+import { ficheNumero, ficheEtoile, enquetesDeLEtoile, pourcent, jauge, enquetesDuNumero, bilanEnquetes, resumeFiche, phrasesPalmares } from './labo.js';
 import { phraseProfil, phraseFetiches, definitionStyle, nombre, signe, dateFr, MENTIONS } from './textes.js';
 import { JEU, JEUX, choisirJeu, numerosDe, etoilesDe, bonusDe, chancePct, chanceTexte } from './moteur/jeu.js';
 
@@ -807,14 +807,59 @@ function htmlPartageLotto() {
 }
 
 function vueMesures(racine) {
-  const sous = [['rejeu', 'Rejeu des styles'], ['insolites', 'Dates insolites'], ['boulier', 'Boulier'], ['experiences', 'Expériences'], ['monlabo', 'Mon Labo']];
+  const sous = [['rejeu', 'Rejeu des styles'], ['insolites', 'Dates insolites'], ['boulier', 'Boulier'], ['experiences', 'Expériences'], ['palmares', 'Palmarès'], ['monlabo', 'Mon Labo']];
   racine.innerHTML = '<div class="puces sous-menu">' + sous.map(([cle, nom]) => `<button class="puce${cle === etat.sousVue ? ' actif' : ''}" data-sous="${cle}">${nom}</button>`).join('') + '</div>' +
-    (etat.sousVue === 'monlabo' ? '<div id="zone-monlabo"></div>' : ENQUETES[etat.sousVue] ? htmlEnquete(etat.sousVue) : htmlRejeu());
+    (etat.sousVue === 'monlabo' ? '<div id="zone-monlabo"></div>' : etat.sousVue === 'palmares' ? htmlPalmares() : ENQUETES[etat.sousVue] ? htmlEnquete(etat.sousVue) : htmlRejeu());
+  racine.querySelectorAll('[data-ouvrir-numero]').forEach((b) => {
+    b.onclick = () => { etat.vue = 'numeros'; etat.choisi = Number(b.dataset.ouvrirNumero); etat.etoileChoisie = null; history.replaceState(null, '', '#numeros'); afficher(); $('fiche').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  });
   if (etat.sousVue === 'monlabo') vueMonLabo($('zone-monlabo'));
   racine.querySelectorAll('[data-sous]').forEach((b) => { b.onclick = () => { etat.sousVue = b.dataset.sous; afficher(); }; });
   rendreTriables(racine);
   // pour les captures d'écran de contrôle : « #mesures-boulier-ouvert » déplie les tableaux détaillés
   if (location.hash.endsWith('-ouvert')) racine.querySelectorAll('details.detail').forEach((d) => { d.open = true; });
+}
+
+// ---------- Le palmarès des curiosités ----------
+
+const BLOCS_PALMARES = { identite: { nom: 'Carte d\'identité', classe: 'famille-monlabo' }, ...FAMILLES };
+
+// Tous les numéros classés selon le nombre d'analyses qui les font sortir de la fourchette du hasard,
+// avec, pour chaque place du classement, ce que le hasard donne à cette même place.
+function htmlPalmares() {
+  const P = D.palmares;
+  if (!P) return '<div class="carte"><p>Le palmarès n\'est pas encore calculé pour ce jeu.</p></div>';
+  const s = phrasesPalmares(P), max = Math.max(...P.numeros.map((x) => x.total), ...P.rangs_hasard.map((r) => r.haut), 1);
+  const largeur = (v) => `${(100 * v) / max}%`;
+  const ligne = (x, i) => {
+    const r = P.rangs_hasard[i], hors = x.total > r.haut ? ' marquee' : '';
+    const detail = x.curiosites.length
+      ? '<ul>' + x.curiosites.map(([bloc, titre, sens]) => `<li><span class="etiquette-famille ${BLOCS_PALMARES[bloc].classe}">${BLOCS_PALMARES[bloc].nom}</span> ${titre} — <b>${sens > 0 ? '▲ au-dessus' : '▼ en dessous'}</b></li>`).join('') + '</ul>'
+      : '<p class="discret">Aucune analyse ne le fait sortir de la fourchette du hasard.</p>';
+    return `<details class="palmares-ligne${hors}"><summary><span class="rang">${i + 1}</span>${boule(x.n, ctx.stats.centChaudN[x.n - 1])}` +
+      `<span class="palmares-barre" title="La zone claire : ce que le hasard donne à la ${i + 1}e place, 19 fois sur 20"><i class="hasard" style="left:${largeur(r.bas)};width:calc(${largeur(r.haut)} - ${largeur(r.bas)})"></i>` +
+      `<i class="valeur" style="width:${largeur(x.total)}"></i></span><b class="palmares-total">${x.total}</b></summary>` +
+      `<p class="discret">Le ${x.n} : ${pluriel(x.total, '« oui »').replace('« oui »s', '« oui »')} (${x.dessus} au-dessus, ${x.dessous} en dessous), ${nombre(x.sorties)} sorties. ` +
+      `À la ${i + 1}e place du classement, le hasard donne en moyenne ${nombre(r.att, 1)} « oui », et entre ${nombre(r.bas)} et ${nombre(r.haut)} dans 19 cas sur 20.</p>${detail}` +
+      `<div class="ligne"><button class="bouton" data-ouvrir-numero="${x.n}">Ouvrir la fiche du ${x.n}</button></div></details>`;
+  };
+  const repartition = '<div class="defile"><table><tr><th>« Oui » par numéro</th><th>Numéros observés</th><th>Au hasard (19 fois sur 20)</th></tr>' +
+    P.repartition.filter((q) => q.obs || q.haut >= 1).map((q) => `<tr${q.obs > q.haut || q.obs < q.bas ? ' class="hors"' : ''}><td>${q.k}</td><td>${q.obs}</td>` +
+      `<td>${nombre(q.att, 1)} (de ${nombre(q.bas)} à ${nombre(q.haut)})</td></tr>`).join('') + '</table></div>';
+  return '<div class="carte"><h2>Palmarès des curiosités</h2>' +
+    `<p class="definition"><b>La question :</b> quels numéros ont été le plus souvent « hors de la fourchette du hasard », toutes analyses confondues ? ` +
+    `Pour chaque numéro, on compte ses « oui » dans les ${P.nb_analyses} analyses qui répondent numéro par numéro : sa carte d'identité et les enquêtes qui ont un tableau par numéro. ` +
+    `Exemple : un numéro sorti nettement plus que les autres, et aussi plus souvent le ${JEU.nomsJours[0]}, compte 2 « oui ».</p>` +
+    `<p class="discret">Chaque analyse donne « oui » à 1 numéro sur 20 par pur hasard : on attend donc environ ${nombre(P.attendu_par_numero, 1)} « oui » par numéro. ` +
+    `Ce classement est comparé à ${nombre(P.nb_simulations)} faux historiques tirés au hasard aux mêmes dates, classés de la même façon.</p>` +
+    `<p class="resume">${s.tete}</p><p class="resume">${s.concentration}</p><p class="resume">${s.frequence}</p>` +
+    `<p class="resume">${s.total}</p><p class="transparence">${s.verdict}</p></div>` +
+    `<div class="carte"><h2>Le classement des ${JEU.boules} numéros</h2>` +
+    '<p class="discret">Pour chaque place : la barre est le nombre de « oui » du numéro ; la zone claire, ce que le hasard donne à cette même place du classement, 19 fois sur 20. ' +
+    'Une barre qui dépasse la zone est encadrée. Touchez un numéro pour voir ses curiosités.</p>' +
+    `<div class="palmares">${s.classement.map(ligne).join('')}</div></div>` +
+    '<div class="carte"><h2>Combien de numéros ont 0, 1, 2… « oui » ?</h2>' +
+    '<p class="discret">Si certains numéros étaient vraiment « à part », on verrait trop de numéros avec beaucoup de « oui » par rapport au hasard.</p>' + repartition + '</div>';
 }
 
 // ---------- Mon Labo : poser sa propre question ----------
@@ -1065,7 +1110,8 @@ async function changerJeu(cle) {
     labo: { fil: [], spec: null, question: '', dernier: null, menus: false } });
   $('jeux').innerHTML = htmlJeux();
   $('vue').innerHTML = '<p class="discret">Chargement…</p>';
-  try { await chargerDonnees(); } catch {
+  try { await chargerDonnees(); } catch (erreur) {
+    console.error(erreur);
     $('vue').innerHTML = '<div class="carte"><p>Les données n\'ont pas pu être chargées. Vérifiez la connexion, puis rouvrez l\'application.</p></div>';
     return;
   }
@@ -1099,13 +1145,14 @@ async function demarrer() {
   $('jeux').innerHTML = htmlJeux();
   try {
     await chargerDonnees();
-  } catch {
+  } catch (erreur) {
+    console.error(erreur);
     $('vue').innerHTML = '<div class="carte"><p>Les données n\'ont pas pu être chargées. Vérifiez la connexion, puis rouvrez l\'application.</p></div>';
     return;
   }
   const [vue, option] = location.hash.slice(1).split('-');
   if (VUES[vue]) etat.vue = vue;
-  [vue, option].filter((x) => ENQUETES[x] || x === 'monlabo').forEach((x) => { etat.vue = 'mesures'; etat.sousVue = x; });
+  [vue, option].filter((x) => ENQUETES[x] || x === 'monlabo' || x === 'palmares').forEach((x) => { etat.vue = 'mesures'; etat.sousVue = x; });
   if (vue === 'numeros' && Number(option) >= 1 && Number(option) <= JEU.boules) etat.choisi = Number(option);
   if (vue === 'etoile' && JEU.nbEtoiles && Number(option) >= 1 && Number(option) <= 12) { etat.vue = 'numeros'; etat.etoileChoisie = Number(option); }
   // « ?rapide » (raccourci de l'icône) ouvre directement le mode rapide et génère

@@ -246,3 +246,20 @@ nav#menu button.actif { color: var(--accent); text-shadow: 0 0 calc(10px * var(-
   content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 30;
   background: repeating-linear-gradient(0deg, rgba(0, 0, 0, .22) 0 1px, transparent 1px 3px);
 }
+
+/* Le palmarès des curiosités : une ligne par numéro, sa barre et la zone du hasard à sa place. */
+.palmares { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.palmares-ligne { border: 1px solid var(--bord); border-radius: var(--rayon); padding: 4px 8px; }
+.palmares-ligne.marquee { border-color: var(--chaud); }
+.palmares-ligne summary { display: grid; grid-template-columns: 26px 34px minmax(0, 1fr) 26px; gap: 8px; align-items: center; cursor: pointer; list-style: none; }
+.palmares-ligne summary::-webkit-details-marker { display: none; }
+.palmares-ligne .rang { color: var(--texte2); font-size: 13px; text-align: right; }
+.palmares-ligne .boule { width: 32px; height: 32px; font-size: 13px; }
+.palmares-barre { position: relative; height: 14px; background: var(--fond); border-radius: 7px; overflow: hidden; }
+.palmares-barre i { position: absolute; top: 0; bottom: 0; left: 0; }
+.palmares-barre .hasard { background: color-mix(in srgb, var(--texte2) 30%, transparent); }
+.palmares-barre .valeur { background: var(--accent); opacity: 0.85; border-radius: 7px; }
+.palmares-total { text-align: right; }
+.palmares-ligne ul { margin: 6px 0; padding-left: 18px; font-size: 14px; }
+.palmares-ligne li { margin: 4px 0; }
+tr.hors td { color: var(--chaud); font-weight: 700; }
